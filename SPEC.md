@@ -31,6 +31,15 @@ reveal scent trails, buried objects, and "memory echoes" (ghostly silhouette vig
 family, 3–5 seconds, no words). Scent is the *navigation and narrative* system — it is how a dog
 experiences the world, and it justifies wordless storytelling.
 
+Three rules keep Sniff Mode from degrading into a held-down "highlight everything" filter
+(the detective-vision problem):
+1. **Pulse, not a lens:** wisps linger 2–3 seconds after releasing the button, so sniffing is a
+   periodic check, not a second screen you play inside. Movement slows while sniffing.
+2. **Navigation and secrets only:** no visible puzzle ever *requires* Sniff Mode to solve.
+   Scent finds paths, buried things, and memory echoes — never lever→gate logic.
+3. **Scent is diegetic and dynamic:** rain weakens it, water erases it, worn family items
+   strengthen it. Ch. 2's lost-trail beat is mechanical, not just narrative.
+
 ---
 
 ## 2. Story & Structure
@@ -49,12 +58,15 @@ scent trail of the family car leading to the highway.
 **Ch. 2 — The Storm & The River**
 Night. Rain, wind gusts that alter jump physics, rising water, floating-debris platforming.
 Lexi is swept downriver — the trail is lost. **Clue:** the daughter's red scarf snagged on a
-branch; carrying it restores a faint scent trail.
+branch; once retrieved it stays tucked into Lexi's collar (worn, not mouth-carried — it must not
+compete with the one-slot mouth inventory) and restores a faint scent trail.
 
 **Ch. 3 — The Junkyard & The Strays**
 Industrial outskirts. Machinery physics: magnets, conveyors, car-crusher timing puzzles.
 A pack of stray dogs — first hostile (stealth/avoidance), later one becomes a temporary ally
-(cooperative puzzles: it holds a lever while Lexi crosses; they part ways at the fence).
+(cooperative puzzles: on a bark command it moves between *authored station points* — sit on a
+plate, hold a lever while Lexi crosses — no free-follow companion AI, which is a scope trap;
+they part ways at the fence).
 **Clue:** a rain-soaked **LOST DOG poster with Lexi's own face** — her family is searching too.
 This is the emotional midpoint: the search goes both ways.
 
@@ -73,9 +85,14 @@ title. (Ambiguity is Limbo's move; ours is earned warmth — the payoff of a hop
 
 ### Clue system (collectible + narrative)
 Every chapter hides 2–3 **Memory Tokens** (red-tinted family objects: ball, scarf, poster,
-bandana, photo). Finding one triggers a short memory-echo vignette. Collecting all unlocks a
-brief post-credits scene (Lexi asleep by the fire). Clues are optional — the critical path never
-requires all of them.
+bandana, photo). Finding one triggers a short memory-echo vignette. Tokens also have a
+mechanical reward: **each token permanently strengthens Lexi's nose** — scent wisps render
+brighter, reach farther, and linger longer after leaving Sniff Mode. The narrative logic writes
+itself (the more of her family Lexi remembers, the stronger their scent pulls her home), and it
+gives exploration a systemic payoff instead of only a post-credits stinger. Because Sniff Mode
+is never *required* to solve puzzles (§1 rules), the buff is quality-of-life, never a gate.
+Collecting all tokens still unlocks a brief post-credits scene (Lexi asleep by the fire).
+Clues are optional — the critical path never requires all of them.
 
 ---
 
@@ -84,7 +101,7 @@ requires all of them.
 ### Controls (keyboard / gamepad / touch overlay)
 | Action | Key | Pad | Notes |
 |---|---|---|---|
-| Move | ←/→ or A/D | Left stick | Walk; hold to run |
+| Move | ←/→ or A/D | Left stick | Always runs (Limbo-style); no walk/run toggle in v1 |
 | Jump | Space / W / ↑ | A | Variable height (hold = higher) |
 | Grab / Bite | E or hold ↓+dir | X (hold) | Drag crates, pull levers/ropes, carry items in mouth |
 | Bark | Q | B | Scares birds/critters, triggers sound-reactive objects, calls ally |
@@ -94,13 +111,18 @@ requires all of them.
 ### Puzzle vocabulary (mix & escalate, Limbo-style)
 1. **Physics:** push/drag crates, seesaws, ropes and pulleys (bite the rope), floating logs, counterweights.
 2. **Sound:** bark to startle crows off a branch (branch rises = platform), set off a car alarm to
-   distract animal control, echo-activated machinery.
+   distract animal control, echo-activated machinery. Bark cuts both ways: in hostile areas
+   (stray territory in Ch. 3, the town in Ch. 4) barking also *attracts* attention — a tool with
+   a cost, not a free "use" key.
 3. **Scent:** invisible-path navigation in fog/dark, find the buried key, choose the correct door.
 4. **Dog-logic:** squeeze through gaps humans can't, dig under obstacles, carry one item at a time
    in mouth (inventory = mouth: elegant one-slot constraint that *creates* puzzles).
 5. **Creature interactions:** owl, crows, river fish, stray pack, junkyard guard dog on a chain
    (arc-of-the-chain spatial puzzle, an homage to Limbo's spider pacing).
-6. **Weather physics (Ch.2+):** wind gusts modify jump arcs on a visible rhythm, rising/falling water.
+6. **Weather physics (Ch.2+):** wind gusts modify jump arcs on a visible, generous rhythm —
+   always telegraphed ≥0.5s ahead (fog streaks, leaves, audio swell) and never stacked on
+   precision jumps. Ch. 2 is early for a casual audience: keep it puzzle-paced, not
+   execution-heavy. Rising/falling water.
 
 ### Fail & checkpoint design
 - Fail states: swept away by water, caught by animal control, snapped-at by the guard dog,
@@ -138,7 +160,7 @@ opposite way — the most boring, proven 2D web stack:
 
 | Layer | Choice | Why |
 |---|---|---|
-| Engine | **Phaser 3** (Arcade Physics; Matter.js only if rope/seesaw puzzles need it) | Mature, huge docs, purpose-built for 2D browser games |
+| Engine | **Phaser 3** (Arcade Physics only — see physics note below) | Mature, huge docs, purpose-built for 2D browser games |
 | Language | **TypeScript** | Safety for a growing codebase; excellent AI-assisted iteration |
 | Build | **Vite** | Instant dev server, trivial static builds |
 | Levels | **Tiled** map editor (`.tmj` JSON) | Free visual editor; Phaser loads it natively |
@@ -147,6 +169,16 @@ opposite way — the most boring, proven 2D web stack:
 | Save | `localStorage` (chapter + checkpoint + tokens) | No backend needed |
 | Deploy (web) | Static hosting: **itch.io**, GitHub Pages, or Netlify | Zero infrastructure |
 | Desktop/Steam later | **Tauri** (preferred: ~10 MB) or Electron wrapper + Steamworks | A packaging step, not a rewrite |
+
+**Physics decision (locked before M1, not deferred):** Arcade Physics only. Arcade bodies are
+non-rotating AABBs with no joints — so rope/pulley, seesaw, counterweight, and floating-log props
+are **scripted kinematic props that look physical, not simulated**: a seesaw lerps its rotation
+from weight distribution, a rope is a scripted constraint, a floating log is a bobbing kinematic
+platform carrying a current velocity. This is deliberate: character game-feel (the M1 priority)
+is far easier to tune in Arcade, behavior stays deterministic, and silhouette art hides the
+fakery. "Matter.js later if needed" is not a real option — half the puzzle vocabulary in §3 is
+rope/seesaw/counterweight, and switching physics engines after M1 means redoing M1's tuning.
+Matter.js is the fallback *only if* scripted props feel dead in M2; decide there, then never again.
 
 **Alternative considered — Godot 4:** excellent, free, 2D-first, one-click exports to
 Windows/Mac/Linux/Web. Choose it instead **if** you decide Steam-native is the primary target or
@@ -216,6 +248,12 @@ src/
 | M5 | Vertical-slice polish | Audio beds, parallax fog, grain, tail animation — "screenshot = Limbo test" |
 | M6–M9 | Chapters 2–5 | One milestone each, reusing bricks + 1–2 new mechanics per chapter |
 | M10 | Release pass | Options, gamepad+touch, itch.io launch; then Tauri/Steam wrap |
+
+**Gate after M5 (go/no-go):** the vertical slice — Chapter 1 polished, deployed, played by
+strangers — is a decision point, not a formality. Validate fun and audience response before
+committing to four more chapters. The honest fallback is re-scoping v1 to **three chapters**:
+Forest → Storm → Junkyard ends on the LOST DOG poster beat ("the search goes both ways"), which
+works as a bittersweet interim ending, with Ch. 4–5 as a v1.1.
 
 **Rule inherited from Playdead:** be willing to trash content that doesn't fit. Build chapters as
 independent map files so cutting/reordering is cheap.

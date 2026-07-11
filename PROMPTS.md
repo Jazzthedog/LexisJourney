@@ -13,7 +13,10 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > from SPEC §5 (scenes/, entities/, systems/, levels/, fx/). Set up `main.ts` with a Phaser config
 > (1280×720, scale to fit, pixelArt off, Arcade Physics with gravity ~1000), and a BootScene that
 > shows a loading bar then starts an empty GameScene rendering a dark grey background.
-> **Verify:** `npm run dev` opens a page showing the empty scene with no console errors.
+> Set up the deploy path now — `npm run build` → itch.io HTML5 upload or GitHub Pages — so every
+> later milestone is one command from a shareable URL (M0's definition of done includes deploy).
+> **Verify:** `npm run dev` opens a page showing the empty scene with no console errors, and the
+> built version loads from the public URL.
 
 ### P0.2 — The look, before anything else
 > Add the monochrome post-processing layer: film grain shader (`fx/Grain.ts`), vignette, and 3
@@ -21,6 +24,13 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > placeholder silhouette rectangles at different parallax depths to prove the depth look.
 > **Verify:** screenshot should already feel "Limbo-ish" — dark, grainy, layered fog — with zero
 > gameplay. If the empty screen doesn't set a mood, fix this before adding a single mechanic.
+
+### P0.3 — Debug harness
+> Add a debug overlay (toggle: backtick) showing FPS, Lexi's current state, and physics body
+> outlines. Debug keys: R = restart at checkpoint, 1–9 = jump straight to a test room/map,
+> F = free-fly camera. Gate everything behind a `DEBUG` flag stripped from production builds.
+> Every phase after this one lives inside test rooms — cheap teleportation pays for itself daily.
+> **Verify:** you can hop between two test rooms and inspect hitboxes without reloading the page.
 
 ---
 
@@ -31,7 +41,10 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > black capsule with two white dot eyes and a small red collar rectangle. Implement: run with
 > acceleration/deceleration (not instant), variable-height jump (hold = higher, release = cut),
 > coyote time (~100ms), jump buffering (~120ms), landing squash. Camera: smooth-follow with
-> look-ahead in the facing direction.
+> look-ahead in the facing direction. Route all input through a small `InputMap` abstraction and
+> support keyboard **and gamepad** from day one — retrofitting pad support later is painful;
+> touch waits until P5.1. Physics is Arcade-only per SPEC §5's physics note — tune the feel in
+> the engine that ships.
 > **Verify:** playable test room of platforms. Iterate on the numbers until jumping around is
 > *fun by itself*. This prompt is done when movement feels good, not when it compiles.
 
@@ -58,6 +71,9 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > Build the composable puzzle set, each as its own class in `entities/props/`, each demoed in its
 > own test room: Lever (bite + pull, toggles a target), Gate (opens/closes, can be a target),
 > Rope/Pulley with counterweight, Seesaw plank on pivot, PressurePlate (Lexi's weight or a crate).
+> Per SPEC §5's physics note these are **scripted kinematic props, not simulated bodies** — the
+> seesaw lerps rotation from weight distribution, the pulley is a scripted constraint. Do NOT
+> introduce Matter.js here; if a prop feels dead when scripted, flag it and decide once.
 > Wire targets via string IDs so Tiled data can connect them later (`lever_01 → gate_01`).
 > **Verify:** a combo room — plate holds gate open only while weighted; solve by dragging a crate
 > onto it.
@@ -75,8 +91,9 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > Add creatures with tiny state machines: Crow (perches, flees from bark — its branch is a
 > physics platform that rises when they leave), Owl (swoops when Lexi crosses open ground; forces
 > cover-to-cover movement), GuardDog (chained — lunges to chain limit; the safe arc is the
-> puzzle), StrayDog ally (follows after being befriended, sits on plates / holds levers on bark
-> command).
+> puzzle), StrayDog ally (per SPEC §2: moves between *authored station points* on bark command —
+> sits on plates / holds levers — no free-follow pathfinding; keep it a switch you aim with a
+> bark, not a companion AI).
 > **Verify:** one test room per creature; the guard-dog room solvable only by baiting the lunge.
 
 ---
@@ -95,8 +112,11 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 > `systems/ClueSystem.ts`: MemoryToken props (rendered with the red accent tint + soft pulse).
 > On pickup: gameplay pauses, a memory-echo vignette plays (ghostly silhouette tableau — a
 > static composed image with fog + grain and the whistle motif, 4s), then fades back. Track
-> collected tokens in `SaveSystem` (localStorage: chapter, checkpoint, tokens).
-> **Verify:** collect a token, reload the page, token stays collected and progress restores.
+> collected tokens in `SaveSystem` (localStorage: chapter, checkpoint, tokens). Per SPEC §2,
+> each collected token permanently buffs `ScentSystem` (wisp brightness, range, and linger
+> duration scale with token count) — the buff must persist through save/reload.
+> **Verify:** collect a token, reload the page, token stays collected, progress restores, and
+> scent wisps are visibly stronger than with zero tokens.
 
 ### P3.3 — Audio bed
 > `systems/AudioSystem.ts`: looping ambient beds per level with crossfade on transitions,
@@ -111,7 +131,7 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 ## Phase 4 — Chapter 1: The Forest
 
 ### P4.1 — Blockout
-> Design Chapter 1 as 4 Tiled maps (SPEC §2): rest-stop intro → deep woods (grab/crate
+> Design Chapter 1 as 5 Tiled maps (SPEC §2): rest-stop intro → deep woods (grab/crate
 > teaching) → stream crossing (water) → owl territory (bark + cover) → highway fence (dig,
 > chapter end). Greybox only: placeholder tiles, all puzzles functional, checkpoints every
 > puzzle, 3 memory tokens hidden off the critical path (ball, chewed stick, car air-freshener).
@@ -137,10 +157,20 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 
 ### P5.1 — Menu, options, deploy
 > MenuScene: title over slow fog, Continue/New/Chapters(locked)/Options (volume sliders, grain
-> toggle, high-contrast mode). `npm run build` → deploy to itch.io (HTML5 project) and/or GitHub
+> toggle, high-contrast mode). Add an in-game pause menu (Esc/Start: resume, restart checkpoint,
+> options, quit to menu). `npm run build` → deploy to itch.io (HTML5 project) and/or GitHub
 > Pages. Add touch controls (left zone = move, swipe up = jump, buttons for bark/sniff) behind
 > mobile detection.
-> **Verify:** a friend plays Chapter 1 on a URL, on desktop and phone, with no instructions.
+> **Verify:** a friend plays Chapter 1 on a URL, on desktop and phone, with no instructions —
+> and it holds a stable framerate on a mid-range phone (grain/fog auto-degrade if not).
+
+### GATE — vertical-slice review (do not skip)
+> Before starting P5.2, stop and evaluate (SPEC §6 gate): What did playtesters actually do?
+> Where did they quit, get lost, or smile? Is Chapter 1 fun *without* being told the premise?
+> Decide here whether v1 stays five chapters or re-scopes to three (ending on the Ch. 3 LOST DOG
+> poster beat). Chapters are independent map files precisely so this decision is cheap now and
+> expensive later.
+> **Verify:** a written go/no-go note with scope decision committed to the repo (`DECISIONS.md`).
 
 ### P5.2–P5.5 — Chapters 2–5
 > One prompt per chapter, same pattern as Phase 4 (blockout → verify → art pass → verify).
