@@ -1,0 +1,35 @@
+Switch Model to Fable
+
+
+/goal I want to build a game like "limbo".
+
+Here is the link to the wikipedia about it. "https://en.wikipedia.org/wiki/Limbo_(video_game)"
+It's kind of a puzzle type of game 2d i believe.
+
+You can see the visual's are minimal. (mostly black and white)
+
+My idea is of a "dog" let's call her "lexi" and her journey to find her owners because
+she got lost accidently. The game can be called "Lexi's Journey".
+
+Can you build out a series of prompts and ideas about how this could work?
+
+What could the architeture be?
+Is this better as download from Stream?
+Could this be a Webapp?
+
+What type of scenario's can we Putt "lexi" in as she finds her owners. Maybe somem clues
+throughout the journey.
+
+Read the Gameplay and Plot and help in creating a similiar game with our dog "lexi".
+
+From the Development section:
+
+"Numerous iterations of the game took place during a 2+1⁄2-year development cycle, including changes Jensen had demanded to polish the title,[7] some elements being added two months prior to the game's release.[17] Patti stated that they "trashed 70%" of the content they had developed, due to it not fitting in well with the context of the game.[8] The core development team size was about 8 developers, expanding to 16 at various stages with freelancers.[18] Playdead developed the design tools for Limbo in Visual Studio; Patti commented they would likely seek third-party applications for their next project given the challenges in creating their own technology.[8] Patti later revealed they had opted to use the Unity engine for their next project, citing the development of their custom engine for Limbo as a "double product, doing both engine and game", and that their Limbo engine is limited to monochromatic visuals.[19]"
+
+I don't want the complexity of Unity.
+
+I want to create the same using the best tools available...Please offer alternative solutions to this.
+
+
+Create a the proper md files for PROMPTS.md and SPEC.md
+
