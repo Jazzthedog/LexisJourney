@@ -43,3 +43,37 @@ taskkill //PID <pid> //F                                  // (Bash tool: use tas
 Check for stale `vite`/`node` processes left over from a prior session before starting a
 new dev server — a stale process holding the port causes Vite to silently pick a
 different port, which then desyncs from whatever URL you verify against.
+
+### Verifying gameplay: `game.loop.step()` + real `dispatchEvent` keyboard input works, but two things will burn you
+
+Because rAF is suspended in this environment (see above), the reliable way to verify
+physics/movement precisely is: expose `window.__game = game` temporarily in `main.ts`
+(remove before committing), then drive frames deterministically —
+
+```js
+let t = performance.now();
+function step(n) { for (let i = 0; i < n; i++) { t += 16.67; game.loop.step(t); } }
+window.dispatchEvent(new KeyboardEvent('keydown', { keyCode, which: keyCode, code, key, bubbles: true }));
+```
+
+`keyCode`/`which` must be set explicitly — a synthetic `KeyboardEvent` doesn't populate
+them by default, and Phaser's `Key` objects match on `keyCode`, so an event without it is
+silently ignored (no error, the key just never registers as pressed).
+
+Two failure modes this pattern produces, neither of which is a real product bug:
+
+1. **A real `wait()` between dispatches can drop "held" keys.** Chrome fires a window
+   `blur` during `wait()` in this environment, and Phaser's `KeyboardManager` resets all
+   key state on blur (correct behavior for a real player alt-tabbing — prevents stuck
+   keys). A test that dispatches `keydown` then calls `wait()` before checking will find
+   the key silently released. Keep held-key sequences inside continuous manual
+   `step()` calls, not spread across `wait()`.
+2. **Tween completion doesn't track a manually stepped clock.** `scene.tweens` timing
+   desyncs from `game.loop.step(t)` — a tween (e.g. Lexi's landing squash) can look
+   permanently frozen at `progress: 0` under manual stepping for dozens of simulated
+   frames, then complete instantly once given genuine real-time ticking. If a
+   tween-driven state transition looks stuck, verify with a real `wait()`, not more
+   `step()` calls, before concluding it's broken.
+
+Physics state (position/velocity/`body.blocked`) *does* track `step(t)` accurately —
+these two quirks are specific to keyboard-state-across-wait and Tween timing.
