@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { InputMap } from "../systems/InputMap";
+import type { Grabbable } from "./props/Grabbable";
 
 export enum LexiState {
   IDLE = "IDLE",
@@ -7,6 +8,7 @@ export enum LexiState {
   JUMP = "JUMP",
   FALL = "FALL",
   LAND = "LAND",
+  GRAB = "GRAB",
 }
 
 // Tuning constants — this is the "feel" surface for P1.1. Iterate on these
@@ -21,6 +23,13 @@ const COYOTE_TIME_MS = 100;
 const JUMP_BUFFER_MS = 120;
 const LAND_SQUASH_MS = 90;
 const IDLE_SPEED_THRESHOLD = 6; // px/s below which grounded counts as idle, not run
+const GRAB_RANGE = 70; // px — how close a grabbable needs to be to attach on E press
+// Arcade can report body.blocked.down=false for exactly one frame while
+// resting (a horizontal-velocity change alone can trigger it, with no real
+// separation from the ground — one frame of gravity slips through before
+// collision resolution snaps it back). Require this many consecutive
+// ungrounded frames before treating her as genuinely airborne.
+const UNGROUNDED_DEBOUNCE_FRAMES = 2;
 
 const BODY_WIDTH = 26;
 const BODY_HEIGHT = 46;
@@ -36,6 +45,10 @@ export class Lexi extends Phaser.GameObjects.Container {
   private jumpBufferTimerMs = 0;
   private jumpCutApplied = false;
   private wasGrounded = false;
+  private ungroundedStreak = 0;
+  private debouncedGrounded = false;
+
+  private held: Grabbable | null = null;
 
   constructor(scene: Phaser.Scene, x: number, y: number, inputMap: InputMap) {
     super(scene, x, y);
@@ -61,15 +74,17 @@ export class Lexi extends Phaser.GameObjects.Container {
   }
 
   getDebugState(): string {
-    const grounded = this.body.blocked.down;
     const vx = Math.round(this.body.velocity.x);
     const vy = Math.round(this.body.velocity.y);
-    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${grounded}`;
+    const holding = this.held ? ` holding=${this.held.kind}` : "";
+    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}`;
   }
 
-  update(deltaSeconds: number): void {
-    const grounded = this.body.blocked.down;
+  update(deltaSeconds: number, grabCandidates: Grabbable[] = []): void {
+    const grounded = this.computeDebouncedGrounded();
+    this.debouncedGrounded = grounded;
 
+    this.updateGrab(deltaSeconds, grabCandidates);
     this.updateTimers(deltaSeconds, grounded);
     this.updateHorizontal(deltaSeconds, grounded);
     this.updateJump(grounded);
@@ -77,6 +92,43 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.updateMovementState(grounded);
 
     this.wasGrounded = grounded;
+  }
+
+  private updateGrab(deltaSeconds: number, grabCandidates: Grabbable[]): void {
+    if (!this.held && this.inputMap.isGrabJustPressed) {
+      this.held = this.findNearestGrabbable(grabCandidates);
+      this.held?.onGrab(this);
+    }
+
+    if (this.held) {
+      if (this.inputMap.isGrabDown) {
+        this.held.onHeldUpdate(this, deltaSeconds);
+      } else {
+        this.held.onRelease(this);
+        this.held = null;
+      }
+    }
+  }
+
+  private findNearestGrabbable(candidates: Grabbable[]): Grabbable | null {
+    let nearest: Grabbable | null = null;
+    let nearestDist = GRAB_RANGE;
+
+    for (const candidate of candidates) {
+      const dist = Phaser.Math.Distance.Between(this.x, this.y, candidate.gameObject.x, candidate.gameObject.y);
+      if (dist <= nearestDist) {
+        nearest = candidate;
+        nearestDist = dist;
+      }
+    }
+
+    return nearest;
+  }
+
+  private computeDebouncedGrounded(): boolean {
+    const rawGrounded = this.body.blocked.down;
+    this.ungroundedStreak = rawGrounded ? 0 : this.ungroundedStreak + 1;
+    return rawGrounded || this.ungroundedStreak < UNGROUNDED_DEBOUNCE_FRAMES;
   }
 
   private updateTimers(deltaSeconds: number, grounded: boolean): void {
@@ -91,7 +143,8 @@ export class Lexi extends Phaser.GameObjects.Container {
 
   private updateHorizontal(deltaSeconds: number, grounded: boolean): void {
     const axis = this.inputMap.moveX();
-    const targetSpeed = axis * MOVE_SPEED;
+    const weightMult = this.held?.speedMultiplier ?? 1;
+    const targetSpeed = axis * MOVE_SPEED * weightMult;
     const control = grounded ? 1 : AIR_CONTROL_MULT;
     const rate = (Math.abs(targetSpeed) > Math.abs(this.body.velocity.x) ? ACCELERATION : DECELERATION) * control;
 
@@ -154,7 +207,16 @@ export class Lexi extends Phaser.GameObjects.Container {
       return;
     }
 
-    this.movementState = Math.abs(this.body.velocity.x) > IDLE_SPEED_THRESHOLD ? LexiState.RUN : LexiState.IDLE;
+    this.movementState = this.groundedLabel();
+  }
+
+  // GRAB only overrides the reported label while grounded and otherwise
+  // idle/running — an airborne carry across a gap still reads as JUMP/FALL.
+  private groundedLabel(): LexiState {
+    if (this.held) {
+      return LexiState.GRAB;
+    }
+    return Math.abs(this.body.velocity.x) > IDLE_SPEED_THRESHOLD ? LexiState.RUN : LexiState.IDLE;
   }
 
   private playLandSquash(): void {
@@ -170,7 +232,7 @@ export class Lexi extends Phaser.GameObjects.Container {
       ease: "Sine.Out",
       onComplete: () => {
         if (this.movementState === LexiState.LAND) {
-          this.movementState = Math.abs(this.body.velocity.x) > IDLE_SPEED_THRESHOLD ? LexiState.RUN : LexiState.IDLE;
+          this.movementState = this.groundedLabel();
         }
       },
     });

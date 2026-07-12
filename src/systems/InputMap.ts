@@ -11,10 +11,14 @@ export class InputMap {
   private keyA: Phaser.Input.Keyboard.Key;
   private keyD: Phaser.Input.Keyboard.Key;
   private keyW: Phaser.Input.Keyboard.Key;
+  private keyE: Phaser.Input.Keyboard.Key;
 
   private jumpDown = false;
   private jumpJustPressed = false;
   private jumpJustReleased = false;
+
+  private grabDown = false;
+  private grabJustPressed = false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -23,16 +27,22 @@ export class InputMap {
     this.keyA = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
     this.keyD = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+    this.keyE = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
   }
 
   update(): void {
     const pad = this.scene.input.gamepad?.pad1;
     const padJumpDown = !!(pad && (pad.A || pad.buttons[0]?.pressed));
-    const wasDown = this.jumpDown;
+    const padGrabDown = !!(pad && (pad.X || pad.buttons[2]?.pressed));
 
+    const wasJumpDown = this.jumpDown;
     this.jumpDown = this.cursors.space.isDown || this.cursors.up.isDown || this.keyW.isDown || padJumpDown;
-    this.jumpJustPressed = this.jumpDown && !wasDown;
-    this.jumpJustReleased = !this.jumpDown && wasDown;
+    this.jumpJustPressed = this.jumpDown && !wasJumpDown;
+    this.jumpJustReleased = !this.jumpDown && wasJumpDown;
+
+    const wasGrabDown = this.grabDown;
+    this.grabDown = this.keyE.isDown || (this.cursors.down.isDown && (this.cursors.left.isDown || this.cursors.right.isDown)) || padGrabDown;
+    this.grabJustPressed = this.grabDown && !wasGrabDown;
   }
 
   moveX(): number {
@@ -60,5 +70,13 @@ export class InputMap {
 
   get isJumpJustReleased(): boolean {
     return this.jumpJustReleased;
+  }
+
+  get isGrabDown(): boolean {
+    return this.grabDown;
+  }
+
+  get isGrabJustPressed(): boolean {
+    return this.grabJustPressed;
   }
 }

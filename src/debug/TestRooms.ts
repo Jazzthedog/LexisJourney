@@ -2,6 +2,9 @@ import Phaser from "phaser";
 import { FogLayers } from "../fx/Fog";
 import { Lexi } from "../entities/Lexi";
 import { InputMap } from "../systems/InputMap";
+import type { Grabbable } from "../entities/props/Grabbable";
+import { Crate } from "../entities/props/Crate";
+import { Ball } from "../entities/props/Ball";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -128,6 +131,43 @@ function expSmooth(current: number, target: number, ratePerSecond: number, delta
   return Phaser.Math.Linear(current, target, t);
 }
 
+function buildPlatforms(scene: Phaser.Scene, specs: PlatformSpec[]): Phaser.Physics.Arcade.StaticGroup {
+  const platforms = scene.physics.add.staticGroup();
+  for (const spec of specs) {
+    const platform = scene.add.rectangle(spec.x, spec.y, spec.w, spec.h, 0x333333);
+    scene.physics.add.existing(platform, true);
+    platforms.add(platform);
+  }
+  return platforms;
+}
+
+// Shared by every room that spawns a playable Lexi: creates her + input,
+// registers scene.lexi for DebugHarness (P0.3), and returns a per-frame
+// update that also drives the manual camera look-ahead (skipped during
+// DebugHarness free-fly).
+function createPlayerRig(scene: Phaser.Scene, spawnX: number, spawnY: number, grabCandidates: Grabbable[] = []) {
+  const input = new InputMap(scene);
+  const lexi = new Lexi(scene, spawnX, spawnY, input);
+
+  (scene as unknown as { lexi?: Lexi }).lexi = lexi;
+
+  const updatePlayerAndCamera = (dt: number) => {
+    input.update();
+    lexi.update(dt, grabCandidates);
+
+    if (scene.data.get("debugFreeFly")) {
+      return;
+    }
+
+    const cam = scene.cameras.main;
+    const targetScrollX = lexi.x + lexi.facingDirection * CAMERA_LOOK_AHEAD_PX - cam.width / 2;
+    cam.scrollX = expSmooth(cam.scrollX, targetScrollX, CAMERA_SMOOTH_PER_SEC, dt);
+    cam.scrollY = expSmooth(cam.scrollY, lexi.y - cam.height / 2, CAMERA_SMOOTH_PER_SEC, dt);
+  };
+
+  return { lexi, updatePlayerAndCamera };
+}
+
 const movementRoom: TestRoom = {
   key: "4",
   name: "Movement",
@@ -136,37 +176,51 @@ const movementRoom: TestRoom = {
     scene.physics.world.setBounds(0, 0, MOVEMENT_WORLD_WIDTH, MOVEMENT_WORLD_HEIGHT);
     scene.cameras.main.setBounds(0, 0, MOVEMENT_WORLD_WIDTH, MOVEMENT_WORLD_HEIGHT);
 
-    const platforms = scene.physics.add.staticGroup();
-    for (const spec of MOVEMENT_PLATFORMS) {
-      const platform = scene.add.rectangle(spec.x, spec.y, spec.w, spec.h, 0x333333);
-      scene.physics.add.existing(platform, true);
-      platforms.add(platform);
-    }
-
-    const input = new InputMap(scene);
-    const lexi = new Lexi(scene, 100, 600, input);
+    const platforms = buildPlatforms(scene, MOVEMENT_PLATFORMS);
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600);
     scene.physics.add.collider(lexi, platforms);
 
-    // DebugHarness (P0.3) reads scene.lexi if present to show live state.
-    (scene as unknown as { lexi?: Lexi }).lexi = lexi;
-
-    return {
-      update: (dt: number) => {
-        input.update();
-        lexi.update(dt);
-
-        if (scene.data.get("debugFreeFly")) {
-          return;
-        }
-
-        const cam = scene.cameras.main;
-        const targetScrollX = lexi.x + lexi.facingDirection * CAMERA_LOOK_AHEAD_PX - cam.width / 2;
-        cam.scrollX = expSmooth(cam.scrollX, targetScrollX, CAMERA_SMOOTH_PER_SEC, dt);
-        cam.scrollY = expSmooth(cam.scrollY, lexi.y - cam.height / 2, CAMERA_SMOOTH_PER_SEC, dt);
-      },
-    };
+    return { update: updatePlayerAndCamera };
   },
 };
 
-export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom];
+// A crate-boost puzzle (drag the crate to the base of a ledge too high to
+// jump to directly, then jump from crate-top up past its edge — not from
+// directly underneath it, which just bonks its underside) followed by a
+// carry-across-a-gap puzzle (the ball waits on the ledge; carrying it
+// survives the jump to the final platform).
+const GRAB_PLATFORMS: PlatformSpec[] = [
+  { x: 400, y: 700, w: 800, h: 40 }, // start ground — ends well before the ledge
+  { x: 850, y: 505, w: 200, h: 30 }, // high ledge — top edge y=490, spans 750..950
+  { x: 1150, y: 600, w: 300, h: 40 }, // finish platform, across a gap from the ledge
+];
+const GRAB_WORLD_WIDTH = 1450;
+const GRAB_WORLD_HEIGHT = 720;
+
+const grabRoom: TestRoom = {
+  key: "5",
+  name: "Grab",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x141414);
+    scene.physics.world.setBounds(0, 0, GRAB_WORLD_WIDTH, GRAB_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, GRAB_WORLD_WIDTH, GRAB_WORLD_HEIGHT);
+
+    const platforms = buildPlatforms(scene, GRAB_PLATFORMS);
+
+    const crate = new Crate(scene, 150, 650);
+    scene.physics.add.collider(crate.gameObject, platforms);
+
+    const ball = new Ball(scene, 850, 470);
+    scene.physics.add.collider(ball.gameObject, platforms);
+
+    const grabCandidates: Grabbable[] = [crate, ball];
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, grabCandidates);
+    scene.physics.add.collider(lexi, platforms);
+    scene.physics.add.collider(crate.gameObject, lexi);
+
+    return { update: updatePlayerAndCamera };
+  },
+};
+
+export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom, grabRoom];
 export const DEFAULT_ROOM_KEY = moodRoom.key;
