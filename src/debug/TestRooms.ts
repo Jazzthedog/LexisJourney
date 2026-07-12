@@ -1,10 +1,13 @@
 import Phaser from "phaser";
 import { FogLayers } from "../fx/Fog";
-import { Lexi } from "../entities/Lexi";
+import { Lexi, LexiInteractables } from "../entities/Lexi";
 import { InputMap } from "../systems/InputMap";
 import type { Grabbable } from "../entities/props/Grabbable";
 import { Crate } from "../entities/props/Crate";
 import { Ball } from "../entities/props/Ball";
+import { DigSpot } from "../entities/props/DigSpot";
+import { Crow } from "../entities/creatures/Crow";
+import { ScentSystem, ScentPoint } from "../systems/ScentSystem";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -145,7 +148,7 @@ function buildPlatforms(scene: Phaser.Scene, specs: PlatformSpec[]): Phaser.Phys
 // registers scene.lexi for DebugHarness (P0.3), and returns a per-frame
 // update that also drives the manual camera look-ahead (skipped during
 // DebugHarness free-fly).
-function createPlayerRig(scene: Phaser.Scene, spawnX: number, spawnY: number, grabCandidates: Grabbable[] = []) {
+function createPlayerRig(scene: Phaser.Scene, spawnX: number, spawnY: number, interactables: LexiInteractables = {}) {
   const input = new InputMap(scene);
   const lexi = new Lexi(scene, spawnX, spawnY, input);
 
@@ -153,7 +156,7 @@ function createPlayerRig(scene: Phaser.Scene, spawnX: number, spawnY: number, gr
 
   const updatePlayerAndCamera = (dt: number) => {
     input.update();
-    lexi.update(dt, grabCandidates);
+    lexi.update(dt, interactables);
 
     if (scene.data.get("debugFreeFly")) {
       return;
@@ -214,7 +217,7 @@ const grabRoom: TestRoom = {
     scene.physics.add.collider(ball.gameObject, platforms);
 
     const grabCandidates: Grabbable[] = [crate, ball];
-    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, grabCandidates);
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, { grabCandidates });
     scene.physics.add.collider(lexi, platforms);
     scene.physics.add.collider(crate.gameObject, lexi);
 
@@ -222,5 +225,73 @@ const grabRoom: TestRoom = {
   },
 };
 
-export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom, grabRoom];
+// A crow to bark off, a scent trail leading to a buried ball, and a fence
+// (too tall to jump — genuinely requires digging under, not just walking
+// around) blocking the way onward.
+const SENSES_PLATFORMS: PlatformSpec[] = [{ x: 450, y: 700, w: 900, h: 40 }];
+const SENSES_WORLD_WIDTH = 1000;
+const SENSES_WORLD_HEIGHT = 720;
+const SENSES_SCENT_PATH: ScentPoint[] = [
+  { x: 80, y: 660 },
+  { x: 250, y: 662 },
+  { x: 450, y: 665 },
+];
+
+const sensesRoom: TestRoom = {
+  key: "6",
+  name: "Senses",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x141414);
+    scene.physics.world.setBounds(0, 0, SENSES_WORLD_WIDTH, SENSES_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, SENSES_WORLD_WIDTH, SENSES_WORLD_HEIGHT);
+
+    const platforms = buildPlatforms(scene, SENSES_PLATFORMS);
+
+    const crow = new Crow(scene, 250, 615);
+
+    const ball = new Ball(scene, 450, 665);
+    ball.gameObject.setVisible(false);
+    (ball.gameObject.body as Phaser.Physics.Arcade.Body).enable = false;
+    scene.physics.add.collider(ball.gameObject, platforms);
+
+    const ballDigSpot = new DigSpot(scene, 450, 675, 40, () => {
+      ball.gameObject.setVisible(true);
+      (ball.gameObject.body as Phaser.Physics.Arcade.Body).enable = true;
+    });
+
+    // Tall enough that jumping over isn't an option (Lexi's jump apex is
+    // ~135px) — the fence must be dug under, not hopped.
+    const fence = scene.add.rectangle(700, 580, 20, 200, 0x2a2a2a);
+    scene.physics.add.existing(fence, true);
+
+    const fenceDigSpot = new DigSpot(scene, 700, 675, 40, () => {
+      fence.setVisible(false);
+      (fence.body as Phaser.Physics.Arcade.StaticBody).enable = false;
+    });
+
+    const scentSystem = new ScentSystem(scene, [SENSES_SCENT_PATH]);
+
+    const grabCandidates: Grabbable[] = [ball];
+    const soundReactive = [crow];
+    const digSpots = [ballDigSpot, fenceDigSpot];
+
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 80, 600, {
+      grabCandidates,
+      soundReactive,
+      digSpots,
+    });
+    scene.physics.add.collider(lexi, platforms);
+    scene.physics.add.collider(lexi, fence);
+
+    return {
+      update: (dt: number) => {
+        updatePlayerAndCamera(dt);
+        crow.update(dt);
+        scentSystem.update(dt, lexi.isSniffing);
+      },
+    };
+  },
+};
+
+export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom, grabRoom, sensesRoom];
 export const DEFAULT_ROOM_KEY = moodRoom.key;

@@ -12,6 +12,8 @@ export class InputMap {
   private keyD: Phaser.Input.Keyboard.Key;
   private keyW: Phaser.Input.Keyboard.Key;
   private keyE: Phaser.Input.Keyboard.Key;
+  private keyQ: Phaser.Input.Keyboard.Key;
+  private keyS: Phaser.Input.Keyboard.Key;
 
   private jumpDown = false;
   private jumpJustPressed = false;
@@ -19,6 +21,14 @@ export class InputMap {
 
   private grabDown = false;
   private grabJustPressed = false;
+
+  private barkJustPressed = false;
+  private wasBarkDown = false;
+
+  private sniffDown = false;
+
+  private digJustPressed = false;
+  private wasDigDown = false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -28,12 +38,17 @@ export class InputMap {
     this.keyD = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.keyE = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this.keyQ = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    this.keyS = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
   }
 
   update(): void {
     const pad = this.scene.input.gamepad?.pad1;
     const padJumpDown = !!(pad && (pad.A || pad.buttons[0]?.pressed));
     const padGrabDown = !!(pad && (pad.X || pad.buttons[2]?.pressed));
+    const padBarkDown = !!(pad && (pad.B || pad.buttons[1]?.pressed));
+    const padSniffDown = !!(pad && pad.L2 > 0.5);
+    const padDigDown = !!(pad && pad.down);
 
     const wasJumpDown = this.jumpDown;
     this.jumpDown = this.cursors.space.isDown || this.cursors.up.isDown || this.keyW.isDown || padJumpDown;
@@ -43,6 +58,16 @@ export class InputMap {
     const wasGrabDown = this.grabDown;
     this.grabDown = this.keyE.isDown || (this.cursors.down.isDown && (this.cursors.left.isDown || this.cursors.right.isDown)) || padGrabDown;
     this.grabJustPressed = this.grabDown && !wasGrabDown;
+
+    const barkDown = this.keyQ.isDown || padBarkDown;
+    this.barkJustPressed = barkDown && !this.wasBarkDown;
+    this.wasBarkDown = barkDown;
+
+    this.sniffDown = this.cursors.shift.isDown || padSniffDown;
+
+    const digDown = this.keyS.isDown || padDigDown;
+    this.digJustPressed = digDown && !this.wasDigDown;
+    this.wasDigDown = digDown;
   }
 
   moveX(): number {
@@ -78,5 +103,17 @@ export class InputMap {
 
   get isGrabJustPressed(): boolean {
     return this.grabJustPressed;
+  }
+
+  get isBarkJustPressed(): boolean {
+    return this.barkJustPressed;
+  }
+
+  get isSniffDown(): boolean {
+    return this.sniffDown;
+  }
+
+  get isDigJustPressed(): boolean {
+    return this.digJustPressed;
   }
 }

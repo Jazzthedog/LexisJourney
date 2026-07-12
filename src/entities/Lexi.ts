@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import { InputMap } from "../systems/InputMap";
 import type { Grabbable } from "./props/Grabbable";
+import type { SoundReactive } from "./SoundReactive";
+import type { DigSpot } from "./props/DigSpot";
 
 export enum LexiState {
   IDLE = "IDLE",
@@ -9,6 +11,15 @@ export enum LexiState {
   FALL = "FALL",
   LAND = "LAND",
   GRAB = "GRAB",
+  BARK = "BARK",
+  SNIFF = "SNIFF",
+  DIG = "DIG",
+}
+
+export interface LexiInteractables {
+  grabCandidates?: Grabbable[];
+  soundReactive?: SoundReactive[];
+  digSpots?: DigSpot[];
 }
 
 // Tuning constants — this is the "feel" surface for P1.1. Iterate on these
@@ -31,6 +42,13 @@ const GRAB_RANGE = 70; // px — how close a grabbable needs to be to attach on 
 // ungrounded frames before treating her as genuinely airborne.
 const UNGROUNDED_DEBOUNCE_FRAMES = 2;
 
+const BARK_RADIUS = 220; // px — how far a bark notifies SoundReactive objects
+const BARK_STATE_MS = 300; // how long BARK overrides the reported label
+const BARK_ANIM_MS = 140;
+const SNIFF_SPEED_MULT = 0.5;
+const DIG_RANGE = 50; // px — how close a DigSpot needs to be to dig it
+const DIG_STATE_MS = 500;
+
 const BODY_WIDTH = 26;
 const BODY_HEIGHT = 46;
 
@@ -41,6 +59,11 @@ export class Lexi extends Phaser.GameObjects.Container {
   private movementState: LexiState = LexiState.IDLE;
   private facing: 1 | -1 = 1;
 
+  // Visuals live in their own child container so squash/bounce tweens on it
+  // never fight updateFacing()'s per-frame scaleX flip on the outer (physics)
+  // container — they used to target the same object and silently cancel out.
+  private visualRoot: Phaser.GameObjects.Container;
+
   private coyoteTimerMs = 0;
   private jumpBufferTimerMs = 0;
   private jumpCutApplied = false;
@@ -49,6 +72,8 @@ export class Lexi extends Phaser.GameObjects.Container {
   private debouncedGrounded = false;
 
   private held: Grabbable | null = null;
+  private barkTimerMs = 0;
+  private digTimerMs = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, inputMap: InputMap) {
     super(scene, x, y);
@@ -66,11 +91,17 @@ export class Lexi extends Phaser.GameObjects.Container {
     const eyeFront = scene.add.ellipse(6, -14, 5, 5, 0xffffff);
     const eyeBack = scene.add.ellipse(6, -7, 5, 5, 0xffffff);
     const collar = scene.add.rectangle(5, -1, 15, 5, 0xaa3333);
-    this.add([capsule, eyeFront, eyeBack, collar]);
+
+    this.visualRoot = scene.add.container(0, 0, [capsule, eyeFront, eyeBack, collar]);
+    this.add(this.visualRoot);
   }
 
   get facingDirection(): 1 | -1 {
     return this.facing;
+  }
+
+  get isSniffing(): boolean {
+    return this.inputMap.isSniffDown;
   }
 
   getDebugState(): string {
@@ -80,11 +111,13 @@ export class Lexi extends Phaser.GameObjects.Container {
     return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}`;
   }
 
-  update(deltaSeconds: number, grabCandidates: Grabbable[] = []): void {
+  update(deltaSeconds: number, interactables: LexiInteractables = {}): void {
     const grounded = this.computeDebouncedGrounded();
     this.debouncedGrounded = grounded;
 
-    this.updateGrab(deltaSeconds, grabCandidates);
+    this.updateGrab(deltaSeconds, interactables.grabCandidates ?? []);
+    this.updateBark(deltaSeconds, interactables.soundReactive ?? []);
+    this.updateDig(deltaSeconds, grounded, interactables.digSpots ?? []);
     this.updateTimers(deltaSeconds, grounded);
     this.updateHorizontal(deltaSeconds, grounded);
     this.updateJump(grounded);
@@ -96,7 +129,7 @@ export class Lexi extends Phaser.GameObjects.Container {
 
   private updateGrab(deltaSeconds: number, grabCandidates: Grabbable[]): void {
     if (!this.held && this.inputMap.isGrabJustPressed) {
-      this.held = this.findNearestGrabbable(grabCandidates);
+      this.held = this.findNearest(grabCandidates, GRAB_RANGE, (c) => c.gameObject);
       this.held?.onGrab(this);
     }
 
@@ -110,12 +143,50 @@ export class Lexi extends Phaser.GameObjects.Container {
     }
   }
 
-  private findNearestGrabbable(candidates: Grabbable[]): Grabbable | null {
-    let nearest: Grabbable | null = null;
-    let nearestDist = GRAB_RANGE;
+  private updateBark(deltaSeconds: number, soundReactive: SoundReactive[]): void {
+    this.barkTimerMs = Math.max(0, this.barkTimerMs - deltaSeconds * 1000);
+
+    if (!this.inputMap.isBarkJustPressed) {
+      return;
+    }
+
+    this.barkTimerMs = BARK_STATE_MS;
+    this.playBarkAnimation();
+
+    for (const target of soundReactive) {
+      const dist = Phaser.Math.Distance.Between(this.x, this.y, target.gameObject.x, target.gameObject.y);
+      if (dist <= BARK_RADIUS) {
+        target.onBark(this.x, this.y);
+      }
+    }
+  }
+
+  private updateDig(deltaSeconds: number, grounded: boolean, digSpots: DigSpot[]): void {
+    this.digTimerMs = Math.max(0, this.digTimerMs - deltaSeconds * 1000);
+
+    if (!grounded || !this.inputMap.isDigJustPressed) {
+      return;
+    }
+
+    const diggable = digSpots.filter((spot) => !spot.isDug);
+    const spot = this.findNearest(diggable, DIG_RANGE, (s) => s.gameObject);
+    if (spot) {
+      spot.onDig(this);
+      this.digTimerMs = DIG_STATE_MS;
+    }
+  }
+
+  private findNearest<T>(
+    candidates: T[],
+    range: number,
+    getPosition: (candidate: T) => { x: number; y: number },
+  ): T | null {
+    let nearest: T | null = null;
+    let nearestDist = range;
 
     for (const candidate of candidates) {
-      const dist = Phaser.Math.Distance.Between(this.x, this.y, candidate.gameObject.x, candidate.gameObject.y);
+      const pos = getPosition(candidate);
+      const dist = Phaser.Math.Distance.Between(this.x, this.y, pos.x, pos.y);
       if (dist <= nearestDist) {
         nearest = candidate;
         nearestDist = dist;
@@ -144,7 +215,8 @@ export class Lexi extends Phaser.GameObjects.Container {
   private updateHorizontal(deltaSeconds: number, grounded: boolean): void {
     const axis = this.inputMap.moveX();
     const weightMult = this.held?.speedMultiplier ?? 1;
-    const targetSpeed = axis * MOVE_SPEED * weightMult;
+    const sniffMult = this.isSniffing ? SNIFF_SPEED_MULT : 1;
+    const targetSpeed = axis * MOVE_SPEED * weightMult * sniffMult;
     const control = grounded ? 1 : AIR_CONTROL_MULT;
     const rate = (Math.abs(targetSpeed) > Math.abs(this.body.velocity.x) ? ACCELERATION : DECELERATION) * control;
 
@@ -210,11 +282,23 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.movementState = this.groundedLabel();
   }
 
-  // GRAB only overrides the reported label while grounded and otherwise
-  // idle/running — an airborne carry across a gap still reads as JUMP/FALL.
+  // Priority among the "grounded, otherwise idle/running" modifier states:
+  // a deliberate momentary action (DIG, then BARK) beats an ongoing hold
+  // (GRAB), which beats a passive read-the-environment mode (SNIFF). An
+  // airborne carry or jump-barking across a gap still reads as JUMP/FALL —
+  // none of this overrides the airborne branch above.
   private groundedLabel(): LexiState {
+    if (this.digTimerMs > 0) {
+      return LexiState.DIG;
+    }
+    if (this.barkTimerMs > 0) {
+      return LexiState.BARK;
+    }
     if (this.held) {
       return LexiState.GRAB;
+    }
+    if (this.isSniffing) {
+      return LexiState.SNIFF;
     }
     return Math.abs(this.body.velocity.x) > IDLE_SPEED_THRESHOLD ? LexiState.RUN : LexiState.IDLE;
   }
@@ -222,12 +306,12 @@ export class Lexi extends Phaser.GameObjects.Container {
   private playLandSquash(): void {
     // A fast staircase (land, immediately jump again) can trigger a new
     // squash before the last one finishes — without this, both tweens fight
-    // over scaleX/scaleY and the state label can get stuck on LAND.
-    this.scene.tweens.killTweensOf(this);
+    // over scale and the state label can get stuck on LAND.
+    this.scene.tweens.killTweensOf(this.visualRoot);
     this.scene.tweens.add({
-      targets: this,
+      targets: this.visualRoot,
       scaleY: { from: 0.75, to: 1 },
-      scaleX: { from: this.facing * 1.15, to: this.facing },
+      scaleX: { from: 1.15, to: 1 },
       duration: LAND_SQUASH_MS,
       ease: "Sine.Out",
       onComplete: () => {
@@ -235,6 +319,18 @@ export class Lexi extends Phaser.GameObjects.Container {
           this.movementState = this.groundedLabel();
         }
       },
+    });
+  }
+
+  private playBarkAnimation(): void {
+    this.scene.tweens.killTweensOf(this.visualRoot);
+    this.scene.tweens.add({
+      targets: this.visualRoot,
+      scaleY: { from: 1, to: 1.2 },
+      scaleX: { from: 1, to: 0.9 },
+      duration: BARK_ANIM_MS,
+      yoyo: true,
+      ease: "Sine.Out",
     });
   }
 }
