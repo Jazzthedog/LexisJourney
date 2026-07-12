@@ -33,7 +33,7 @@ I want to create the same using the best tools available...Please offer alternat
 
 Create a the proper md files for PROMPTS.md and SPEC.md
 
-////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////
 
 Good catch — let me clarify what's going on.
 
@@ -50,8 +50,7 @@ Option 2 — stay in this session: run /model fable (or select it from the /mode
 One tip either way: ask Fable to review and propose edits rather than rewrite from scratch — you'll get sharper critique and keep the structure intact.
 
 
-
-////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////
 
 
 The handoff is ready — validation scored 95/100 (the one warning, src/main.ts not found, is expected: it's referenced as future architecture and no code exists yet).
@@ -82,7 +81,7 @@ step is a gate.
 
 One tip: when you reach P1.1 (movement), plan to be hands-on — its bar is "jumping feels fun," which the model can't judge alone. Play the test room and give feedback on the numbers before letting it commit.
 
-/////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////
 
 should i use the "fable-mode" skill when asking to read the ".claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md"?
 
@@ -97,3 +96,195 @@ Where it does earn its cost is the prompts where a silent bug is expensive or th
 - P3.2 (SaveSystem + token scent buff persistence) — save/reload correctness is in the same category.
 
 So the practical rule: run your normal instruction message as-is for most sessions, and for those three prompts prepend /fable-mode (or "use fable mode") before the instruction. Also keep it in your back pocket as an escalation — if Sonnet produces something that passes Verify but feels off, re-running the prompt with fable-mode on is cheaper than switching models.
+
+
+//////////////////////////////////////////
+
+Read .claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md
+in full, then read SPEC.md and PROMPTS.md in full. These three documents are
+authoritative — the handoff explains the state, SPEC.md is the design, and
+PROMPTS.md is your work queue.
+
+Then execute prompt P0.1 from PROMPTS.md. Run its Verify step; do not move on
+until it passes. Commit when verified. Stop after P0.1 and report the result.
+
+Hard rules: Arcade Physics only, never introduce Matter.js (SPEC §5 physics
+note). One prompt per session unless I say otherwise. Every prompt's Verify
+step is a gate.
+//////////////////////////////////////////
+
+
+P0.1 complete and committed (c1053d9).
+
+What was built: Vite + TypeScript + Phaser 3 skeleton with the SPEC §5 folder structure (scenes/, entities/{creatures,props}/, systems/, levels/, fx/), a Phaser config at 1280×720 with scale-to-fit and Arcade Physics (gravity 1000, pixelArt off), a BootScene with a loading-bar stub that hands off to an empty GameScene (dark grey background, 0x1a1a1a). vite.config.ts uses a relative base so the same build works unmodified on itch.io or a GitHub Pages subpath.
+
+Verify results:
+- npm run dev → loaded in Chrome, empty dark scene rendered, console shows only Vite's connect log and Phaser's own banner — zero errors.
+- npm run build → succeeded (one expected "chunk >500kB" advisory, normal for a Phaser bundle, not an error).
+- npm run preview (serves dist/ exactly as a static host would) → same clean load, zero console errors.
+
+One thing I did not do: actually push to an itch.io or GitHub Pages URL. That's an account/hosting action — deploying is a build config decision I've made (relative paths, npm run build output is host-ready), but pushing to a live public URL needs your itch.io or GitHub credentials/repo setup. Let me know which you want and whether you need help wiring it up.
+
+Left untouched: your uncommitted edits in LexiJourney-notes.txt and the .claude/ directory — neither is part of this scaffold, so I didn't stage or commit them.
+
+Per the "one prompt per session" rule, stopping here. Next up whenever you're ready: P0.2 (grain/fog/vignette mood layer).
+
+//////////////////////////////////////////
+0.2
+
+Read .claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md
+in full, then read SPEC.md and PROMPTS.md in full. These three documents are
+authoritative — the handoff explains the state, SPEC.md is the design, and
+PROMPTS.md is your work queue.
+
+Then execute prompt P0.2 from PROMPTS.md. Run its Verify step; do not move on
+until it passes. Commit when verified. Stop after P0.2 and report the result.
+
+Hard rules: Arcade Physics only, never introduce Matter.js (SPEC §5 physics
+note). One prompt per session unless I say otherwise. Every prompt's Verify
+step is a gate.
+
+
+P0.2 complete and committed (64e9997).
+
+What was built:
+- fx/Grain.ts — a WebGL post-FX pipeline on the main camera combining animated film grain (toggled with the G key) and an always-on vignette darkening the edges.
+- fx/Fog.ts — 3 TileSprite fog layers, each drifting at a different speed for parallax depth.
+- GameScene.ts — placeholder silhouette rectangles at 3 depths, each drifting at a different speed, so the layered-depth look reads even before there's a camera or player to drive real parallax.
+
+Verify (screenshot test — "does the empty screen already feel Limbo-ish?"): confirmed visually — dark background, visible film grain texture, vignette darkening toward the frame edges, fog drifting, and silhouette layers moving at different speeds relative to each other over time. G key toggles grain on/off correctly while the vignette stays put. No console errors; npm run build still succeeds.
+
+One real bug I hit and want to flag: this browser-automation environment keeps the Chrome tab's document.visibilityState stuck on "hidden", which fully suspends Phaser's default requestAnimationFrame loop — not throttles, suspends. That stalled the scene manager's own update step, so the Boot→Game transition never completed on its own. I fixed it by setting fps: { forceSetTimeOut: true } in main.ts's Phaser config, which switches the loop to setTimeout (unaffected by tab visibility). This is a real fix that also matters for a real player (a backgrounded tab shouldn't kill the game loop), not just a workaround for verification — worth keeping permanently. I also had to force-kill a few stale dev/preview server processes left over from the previous session that weren't actually terminated by a normal kill on their bash job PID (Windows/Git-Bash background jobs don't map 1:1 to the real node.exe PID) — used taskkill //PID <real-pid> //F instead once located via netstat.
+
+Per the one-prompt-per-session rule, stopping here. Next up: P0.3 (debug harness — FPS/state overlay, test-room teleport keys, DEBUG flag).
+
+when you hit a bug and then figure out a way to fix it, can we write that in our claude.md file or is there a better approach?
+
+ Write(CLAUDE.md)
+Wrote 45 lines to CLAUDE.md
+# Lexi's Journey — Agent Notes
+
+`SPEC.md` (design) and `PROMPTS.md` (build queue) are authoritative — read both in full
+before touching code. Session handoffs live in `.claude/handoffs/`.
+
+## Commands
+
+- `npm run dev` — Vite dev server
+- `npm run build` — typecheck (`tsc -b`) + production build to `dist/`
+- `npm run preview` — serve `dist/` statically, the same way itch.io/GitHub Pages would
+… +35 lines
+
+Done, committed as fd1fa93.
+
+- CLAUDE.md (new) — full detail on both gotchas: the rAF-suspension failure mode and fix, plus the Windows dev-server-kill workaround. This is what gets read automatically at the start of every future session in this repo.
+- SPEC.md §5 — one-line pointer added to the code-architecture principles, so the forceSetTimeOut decision is a recorded tech-spec fact, not just buried in a commit message.
+- PROMPTS.md Working rules — a 6th rule pointing future verify steps at CLAUDE.md before assuming a frozen screen means broken code.
+
+No duplication of the full explanation across all three — CLAUDE.md holds the detail, SPEC.md and PROMPTS.md just point to it from the places someone would naturally be looking when it bites them again.
+
+//////////////////////////////////////////
+0.3
+
+Read .claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md
+in full, then read SPEC.md and PROMPTS.md in full. These three documents are
+authoritative — the handoff explains the state, SPEC.md is the design, and
+PROMPTS.md is your work queue.
+
+Then execute prompt P0.3 from PROMPTS.md. Run its Verify step; do not move on
+until it passes. Commit when verified. Stop after P0.3 and report the result.
+
+Hard rules: Arcade Physics only, never introduce Matter.js (SPEC §5 physics
+note). One prompt per session unless I say otherwise. Every prompt's Verify
+step is a gate.
+
+//////////////////////////////////////////
+
+https://github.com/donchitos/claude-code-game-studios
+Maybe for next time!!
+
+//////////////////////////////////////////
+
+P0.3 complete and committed (239c126).
+
+What was built:
+- src/debug/flag.ts — DEBUG tied to import.meta.env.DEV.
+- src/debug/TestRooms.ts — a small room registry: Empty (bare baseline), Mood (the P0.2 fog/grain/silhouette content, now data-driven instead of hardcoded in GameScene), and a new Physics Sandbox (a falling dynamic box onto a static platform, added specifically to give the hitbox-outline toggle something real to show).
+- src/debug/DebugHarness.ts — backtick toggles an overlay showing FPS, current room, a "Lexi" state placeholder (wired to pick up P1.1's player automatically via an optional getDebugState() hook, currently reads "no player yet"), and Arcade physics body outlines. Keys: R restarts the current room, 1–9 teleport between registered rooms via scene.restart() (no page reload), F toggles a free-fly camera panned with arrow keys.
+
+Verify ("hop between two test rooms and inspect hitboxes without reloading the page") — confirmed: teleported 2↔1↔3 via number keys, all in-place via scene.restart(); Room 3 showed clear magenta/blue physics debug outlines with a velocity vector on the falling box. Also checked the DEBUG-stripping requirement two ways: grepped the production bundle for debug-only strings (no player yet, FREE-FLY, DebugHarness, etc. — all absent, while real content like Physics Sandbox survives), and behaviorally confirmed backtick/digit keys are no-ops in the preview build. No console errors at any point.
+
+One tool-level gotcha worth knowing for future sessions: the browser automation's key action needs the literal ` character for backtick — the name "grave" silently sends nothing (no error, just no keydown event at all). Cost some time chasing a phantom bug before I isolated it with a raw keydown listener. Not worth a CLAUDE.md entry since it's a one-off input quirk, not a recurring project fact, but flagging it here in case you hit the same thing.
+
+Per the one-prompt-per-session rule, stopping here. Next up: P1.1 (movement core) — this is the "feel bar, not feature bar" prompt, so expect that session to be about tuning jump/run numbers, not shipping features quickly.
+
+
+//////////////////////////////////////////
+
+
+P1.1 complete and committed (5381bc9).
+
+What was built:
+- entities/Lexi.ts — the IDLE/RUN/JUMP/FALL/LAND state machine, driving an Arcade-physics Container. Placeholder art: black capsule, two white dot eyes, red collar rectangle, mirrored for facing. Acceleration/deceleration ramp (not instant), variable-height jump, ~100ms coyote time, ~120ms jump buffer, landing squash.
+- systems/InputMap.ts — keyboard (arrows/WASD/space) + gamepad (left stick, face button A) unified into one small surface.
+- debug/TestRooms.ts — a new Movement room (key 4): a jump staircase into a long run into a small hop, with manual exponential-smoothed camera follow + facing-direction look-ahead.
+
+On the "done when it feels good, not when it compiles" bar: I should be upfront that real-time key-hold feel testing isn't reliable in this environment — the automation tab's rAF/timing quirks make it a bad judge of actual game feel. What I could do rigorously: drive the physics loop with fixed 16.67ms steps against real DOM keyboard events and numerically verify every mechanic the prompt asked for — acceleration ramps rather than snapping, held-vs-early-released jumps produce measurably different arcs, coyote time works right at the ~100ms edge, jump buffering fires exactly on the landing frame. All confirmed correct. The actual tuning constants (260px/s run speed, -520 jump velocity, etc.) are reasonable starting points, not human-playtested — please run this yourself and tell me if the numbers feel off, that's the part I can't judge from here.
+
+One real bug this testing caught and fixed: rapid successive landings (e.g., quickly climbing the staircase) could stack multiple un-killed squash tweens fighting over scale, occasionally leaving the debug-label stuck. Fixed by killing prior tweens before starting a new one.
+
+I also chased a vx=NaN that appeared once during stress-testing, isolated it to only ever occurring after dozens of separate synthetic-event script calls layered on top of each other — not reproducible from a fresh session, matched key-press pairs, or even simulated OS key-repeat. Concluded it's a test-harness artifact, not a product bug, and deliberately didn't add speculative NaN-guard code for it per the project's don't-validate-what-can't-happen principle. Flagging it in case you ever see it during real play.
+
+Per the one-prompt-per-session rule, stopping here. Next: P1.2 (grab/bite/drag).
+
+
+//////////////////////////////////////////
+
+P1.2 complete and committed (4d14f8a).
+
+What was built:
+- entities/props/Grabbable.ts — shared contract (kind, speedMultiplier, onGrab/onHeldUpdate/onRelease) so Lexi never depends on a concrete prop class.
+- entities/props/Crate.ts — dragged along the ground by syncing its velocity to Lexi's each frame while held; has its own drag so it doesn't slide forever once released.
+- entities/props/Ball.ts — carried in her mouth: physics disabled and manually positioned at a facing-aware offset while held, re-enabled with zero velocity on release so it drops naturally.
+- entities/Lexi.ts — new GRAB state (hold E). GRAB only overrides the debug label while grounded and otherwise idle/running — an airborne carry across a gap still correctly reads as JUMP/FALL, since carrying has to survive jumping.
+- debug/TestRooms.ts — new Grab room (key 5): drag a crate to boost onto a ledge too high to reach directly, then carry a ball across a gap.
+
+Verify, both scenarios confirmed numerically, not just visually:
+- Drag a crate to reach a high ledge: dragging applies the exact expected weight penalty (260 × 0.55 = 143 px/s, matched exactly), the crate tracks her position. A jump from crate-top clears the ledge (apex y=460 vs. ledge top y=490); the same jump from ground level without the crate falls short (apex y=543) and drops through the gap — proving the puzzle genuinely requires the prop, not just decorates it.
+- Carry the ball across a gap: grabbing attaches it at the exact mouth offset, it tracks through a full jump across the gap, and lands with her; releasing correctly re-enables physics and it settles at the expected resting height.
+
+Two real things I found and fixed along the way, not just cosmetic:
+1. A genuine debounce bug: Arcade Physics can report body.blocked.down = false for exactly one frame while Lexi is resting still (a horizontal-velocity change alone triggers it — confirmed by tracing vy/y directly: one frame of gravity slips through, then snaps back). This wasn't just a test artifact — I verified it reproduces during ordinary running in both the Movement and Grab rooms. Fixed by requiring 2 consecutive ungrounded frames before treating her as truly airborne, applied everywhere grounded is used.
+2. Chased what looked like a stuck-state bug for a while before realizing it was two separate test-methodology quirks, not product bugs: real wait() can trigger a window blur that resets all Phaser key states (correct behavior for a real player alt-tabbing, incompatible with "hold a key across a wait()" in a test script), and Phaser's Tween timing doesn't track a manually-stepped clock the way Arcade physics does — a tween that looked permanently frozen under manual stepping completed normally under real wall-clock ticking. Documented both in the commit message for future sessions.
+
+Given how directly useful those two testing gotchas were, want me to also fold them into CLAUDE.md the way we did for the rAF-suspension issue last time?
+
+Per the one-prompt-per-session rule, stopping here. Next: P1.3 (bark, sniff, dig).
+
+
+//////////////////////////////////////////
+
+
+P1.3 complete and committed (fc3d973) — this closes out Phase 1.
+
+What was built:
+- entities/SoundReactive.ts + entities/creatures/Crow.ts — bark's radius check lives directly on Lexi (matching SPEC's own note that bark/sniff/dig are part of Lexi.ts's state machine, not separate systems). Crow perches until barked at, then flees.
+- entities/props/DigSpot.ts — a dumb trigger zone with an onDig callback; the room decides what digging actually does.
+- systems/ScentSystem.ts — wisps drifting along authored paths + a darken overlay, both driven by one visibility value that snaps to 1 while sniffing and decays over ~2.5s after release (SPEC's "pulse, not a lens" rule).
+- entities/Lexi.ts — BARK, SNIFF, DIG states added to the machine.
+- debug/TestRooms.ts — new Senses room (key 6): a crow to bark off, a scent trail to a buried ball, a fence too tall to jump that requires digging under.
+
+Verify, all numerically confirmed:
+- Bark: crow's post-flee position matched the flee velocity exactly (170px distance, within the 220px radius); state label shows BARK on press.
+- Sniff: speed exactly halved (260→130), wisp/overlay alpha matched their constants exactly (0.85/0.35) while active, and the linger fade tracked the expected decay curve precisely at ~1s/~2s/~3s samples (60%→20%→0%) — while the state label drops SNIFF instantly on release (only the visual lingers, which is correct).
+- Dig: both spots fire independently via nearest-in-range targeting (confirmed when I overshot and accidentally dug the fence instead of the ball first); the fence provably blocks movement before digging and permits it after.
+
+One real bug this surfaced, not just a P1.3 issue but retroactively affecting P1.1: updateFacing() was calling setScale() on Lexi every frame, unconditionally — which silently fought any squash/bounce tween targeting the same object. This means the P1.1 landing squash has likely never actually been visible on screen since it shipped. Fixed by moving all visuals into a child visualRoot container that tweens now target, structurally separate from the outer container's per-frame facing flip. Verified the fix directly: tween completes and settles cleanly with zero lingering conflict.
+
+Also confirmed the visualRoot fix's scope: I said "likely never visible" rather than definitively — worth you eyeballing the land-squash and new bark-animation in an actual play session to confirm it now reads correctly, since automated verification here only checked the numbers, not the felt polish.
+
+Per the one-prompt-per-session rule, stopping here. Phase 1 (Lexi, game-feel first) is done. Next up: P2.1 — Mechanical props (Lever, Gate, Rope/Pulley, Seesaw, PressurePlate), the start of Phase 2's puzzle-brick roster.
+
+
+/////
+
+/fable-mode Execute P2.1 from PROMPTS.md
