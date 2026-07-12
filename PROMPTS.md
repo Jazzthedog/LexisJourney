@@ -198,3 +198,7 @@ step — don't move on until it passes. Reference `SPEC.md` in every session so 
 4. **The screenshot test** — every art-pass verify is "does a random frame look like the game we
    pitched?"
 5. **Trash freely** — chapters are independent map files precisely so cutting is cheap.
+6. **Verifying via browser automation:** kill stale dev/preview servers before starting a new
+   one (a leftover process holding the port makes Vite silently pick a different one, which
+   desyncs from whatever URL you check). If a verify step looks frozen with no console errors,
+   see `CLAUDE.md`'s gotchas before assuming the feature is broken.

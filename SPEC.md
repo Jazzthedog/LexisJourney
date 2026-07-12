@@ -233,6 +233,10 @@ src/
   recombine them (this is exactly how Limbo gets depth from two verbs).
 - **Fixed-timestep physics** (Arcade default) for deterministic puzzle behavior.
 - **Post-fx isolated** in `fx/` so the monochrome look is a layer, not baked into assets.
+- **Game loop ticks via `setTimeout`, not `requestAnimationFrame`** (`fps.forceSetTimeOut`
+  in `main.ts`, set in P0.2) — rAF can be fully suspended in a backgrounded/automated
+  browser tab, which would otherwise stall the scene manager itself. See `CLAUDE.md` for
+  the failure mode this fixes.
 
 ---
 
