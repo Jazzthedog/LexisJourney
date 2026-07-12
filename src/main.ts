@@ -20,6 +20,9 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
+  input: {
+    gamepad: true,
+  },
   // requestAnimationFrame is suspended in some automated/backgrounded-tab
   // environments (browser-driven verification, headless capture), which
   // would otherwise stall the scene manager's own update loop indefinitely.

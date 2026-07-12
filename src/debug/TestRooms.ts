@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { FogLayers } from "../fx/Fog";
+import { Lexi } from "../entities/Lexi";
+import { InputMap } from "../systems/InputMap";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -98,5 +100,73 @@ const physicsSandboxRoom: TestRoom = {
   },
 };
 
-export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom];
+interface PlatformSpec {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// A short staircase (tests jump height + gap judgment) into a long straight
+// run (tests top speed/acceleration) into a small closing hop.
+const MOVEMENT_PLATFORMS: PlatformSpec[] = [
+  { x: 250, y: 700, w: 500, h: 40 }, // start ground
+  { x: 775, y: 620, w: 250, h: 30 }, // step up
+  { x: 1175, y: 540, w: 250, h: 30 }, // step up again
+  { x: 1775, y: 700, w: 650, h: 40 }, // long run (drop back down from the stairs)
+  { x: 2250, y: 620, w: 150, h: 30 }, // small hop
+  { x: 2700, y: 700, w: 700, h: 40 }, // finish ground
+];
+const MOVEMENT_WORLD_WIDTH = 3200;
+const MOVEMENT_WORLD_HEIGHT = 720;
+
+const CAMERA_LOOK_AHEAD_PX = 140;
+const CAMERA_SMOOTH_PER_SEC = 8; // higher = snappier follow
+
+function expSmooth(current: number, target: number, ratePerSecond: number, deltaSeconds: number): number {
+  const t = 1 - Math.exp(-ratePerSecond * deltaSeconds);
+  return Phaser.Math.Linear(current, target, t);
+}
+
+const movementRoom: TestRoom = {
+  key: "4",
+  name: "Movement",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x141414);
+    scene.physics.world.setBounds(0, 0, MOVEMENT_WORLD_WIDTH, MOVEMENT_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, MOVEMENT_WORLD_WIDTH, MOVEMENT_WORLD_HEIGHT);
+
+    const platforms = scene.physics.add.staticGroup();
+    for (const spec of MOVEMENT_PLATFORMS) {
+      const platform = scene.add.rectangle(spec.x, spec.y, spec.w, spec.h, 0x333333);
+      scene.physics.add.existing(platform, true);
+      platforms.add(platform);
+    }
+
+    const input = new InputMap(scene);
+    const lexi = new Lexi(scene, 100, 600, input);
+    scene.physics.add.collider(lexi, platforms);
+
+    // DebugHarness (P0.3) reads scene.lexi if present to show live state.
+    (scene as unknown as { lexi?: Lexi }).lexi = lexi;
+
+    return {
+      update: (dt: number) => {
+        input.update();
+        lexi.update(dt);
+
+        if (scene.data.get("debugFreeFly")) {
+          return;
+        }
+
+        const cam = scene.cameras.main;
+        const targetScrollX = lexi.x + lexi.facingDirection * CAMERA_LOOK_AHEAD_PX - cam.width / 2;
+        cam.scrollX = expSmooth(cam.scrollX, targetScrollX, CAMERA_SMOOTH_PER_SEC, dt);
+        cam.scrollY = expSmooth(cam.scrollY, lexi.y - cam.height / 2, CAMERA_SMOOTH_PER_SEC, dt);
+      },
+    };
+  },
+};
+
+export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom];
 export const DEFAULT_ROOM_KEY = moodRoom.key;
