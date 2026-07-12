@@ -20,6 +20,13 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
+  // requestAnimationFrame is suspended in some automated/backgrounded-tab
+  // environments (browser-driven verification, headless capture), which
+  // would otherwise stall the scene manager's own update loop indefinitely.
+  // setTimeout keeps ticking regardless of tab visibility.
+  fps: {
+    forceSetTimeOut: true,
+  },
   scene: [BootScene, GameScene],
 };
 
