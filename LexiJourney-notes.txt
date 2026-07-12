@@ -33,3 +33,67 @@ I want to create the same using the best tools available...Please offer alternat
 
 Create a the proper md files for PROMPTS.md and SPEC.md
 
+////////////////////////////////////////////////////////////////////////
+
+Good catch — let me clarify what's going on.
+
+Normally /model does switch the current session immediately, and your command output did say it set Fable 5. But my environment this turn reports I'm running as Sonnet 5, so the switch evidently didn't take effect here (this can happen if Fable isn't available on your plan/endpoint and it silently fell back). You can check by running /model again with no arguments — it shows the currently active model.
+
+The good news: it doesn't matter for getting a Fable review, because the deliverables are files on disk, not conversation context. Nothing from this session needs to carry over. Two clean options:
+
+Option 1 — new session (simplest, recommended): Exit this session, start a fresh one (Fable 5 is already saved as your default), and paste:
+
+▎ Read SPEC.md and PROMPTS.md. Review them critically as a senior game designer and technical lead: (1) Is the scope realistic for a solo, AI-assisted developer? (2) Are there design flaws — puzzle vocabulary, difficulty curve, the Sniff Mode mechanic, the chapter structure? (3) Is Phaser 3 + TypeScript the right call vs Godot 4 for this specific project? (4) Are the prompts in PROMPTS.md ordered correctly, and is anything missing between milestones? Propose concrete edits, then apply the ones you're confident in.
+
+Option 2 — stay in this session: run /model fable (or select it from the /model menu), confirm it took, then give me the same review request. If it silently stays on Sonnet again, that tells you Fable isn't available in this environment and Option 1 in the desktop app / wherever you normally get Fable is the way.
+
+One tip either way: ask Fable to review and propose edits rather than rewrite from scratch — you'll get sharper critique and keep the structure intact.
+
+
+
+////////////////////////////////////////////////////////////////////////
+
+
+The handoff is ready — validation scored 95/100 (the one warning, src/main.ts not found, is expected: it's referenced as future architecture and no code exists yet).
+
+Handoff document: .claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md
+
+It captures everything the next model needs: current state (design done, zero code), all the locked decisions from the review (Arcade-only physics with scripted props, no Matter.js drift, feel-bar for movement, the go/no-go gate), gotchas (Windows/PowerShell quirks, Vite base for GitHub Pages), and the exact next steps. I haven't committed it — say the word if you want it in git so it survives anywhere you clone.
+
+Your exact instructions for the new session
+
+1. In this session, quit or run /model to pick Sonnet or Opus. (My take: Sonnet is the right choice here — the prompts in PROMPTS.md are well-scoped single systems with verify steps, which is exactly what Sonnet executes well; save Opus for gnarly moments like Matter-vs-scripted prop deadlocks or movement feel tuning if Sonnet stalls.)
+2. Open a new session in E:\LLM-LexiJourney.
+3. Paste this as your first message:
+
+Read .claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md
+in full, then read SPEC.md and PROMPTS.md in full. These three documents are
+authoritative — the handoff explains the state, SPEC.md is the design, and
+PROMPTS.md is your work queue.
+
+Then execute prompt P0.1 from PROMPTS.md. Run its Verify step; do not move on
+until it passes. Commit when verified. Stop after P0.1 and report the result.
+
+Hard rules: Arcade Physics only, never introduce Matter.js (SPEC §5 physics
+note). One prompt per session unless I say otherwise. Every prompt's Verify
+step is a gate.
+
+4. For each later session, reuse the same message but swap P0.1 for the next prompt (P0.2, P0.3, P1.1, …). The "read the three docs first" preamble stays every time — that's what keeps context consistent across fresh sessions.
+
+One tip: when you reach P1.1 (movement), plan to be hands-on — its bar is "jumping feels fun," which the model can't judge alone. Play the test room and give feedback on the numbers before letting it commit.
+
+/////////////////////////////////////////////////////////////////////////////
+
+should i use the "fable-mode" skill when asking to read the ".claude/handoffs/2026-07-11-160623-lexi-journey-start-development.md"?
+
+Short answer: not by default — use it selectively.
+
+The fable-mode skill makes the model adopt heavier planning/verification habits, which costs tokens and time on every step. Your PROMPTS.md already builds in the discipline that matters most here — each prompt is a single scoped system with a hard Verify gate — so for routine prompts (P0.1 scaffolding, P0.2 fog/grain, P4.x content work) it's overhead without much payoff. The reading of the handoff doc itself definitely doesn't need it; that's just context loading.
+
+Where it does earn its cost is the prompts where a silent bug is expensive or the judgment is subtle:
+
+- P2.1 (scripted kinematic props) — this is the project's riskiest technical bet; the failure mode is props that "compile but feel dead," exactly the kind of thing extra rigor catches early.
+- P2.2 (CheckpointSystem) — state snapshot/restore bugs are classic silent corruption that only surfaces chapters later.
+- P3.2 (SaveSystem + token scent buff persistence) — save/reload correctness is in the same category.
+
+So the practical rule: run your normal instruction message as-is for most sessions, and for those three prompts prepend /fable-mode (or "use fable mode") before the instruction. Also keep it in your back pocket as an escalation — if Sonnet produces something that passes Verify but feels off, re-running the prompt with fable-mode on is cheaper than switching models.
