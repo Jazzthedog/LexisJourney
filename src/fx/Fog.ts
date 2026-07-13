@@ -7,9 +7,9 @@ interface FogLayerConfig {
 }
 
 const LAYER_CONFIGS: FogLayerConfig[] = [
-  { alpha: 0.08, driftSpeed: 4, tileScale: 1.6 },
-  { alpha: 0.14, driftSpeed: 9, tileScale: 1.1 },
-  { alpha: 0.2, driftSpeed: 16, tileScale: 0.75 },
+  { alpha: 0.04, driftSpeed: 4, tileScale: 1.6 },
+  { alpha: 0.07, driftSpeed: 9, tileScale: 1.1 },
+  { alpha: 0.1, driftSpeed: 16, tileScale: 0.75 },
 ];
 
 const FOG_TEXTURE_KEY = "fx-fog-blob";
@@ -65,7 +65,7 @@ export class FogLayers {
     LAYER_CONFIGS.forEach((cfg, i) => {
       const layer = scene.add.tileSprite(width / 2, height / 2, width, height, key);
       layer.setAlpha(Phaser.Math.Clamp(cfg.alpha * densityMultiplier, 0, 1));
-      layer.setTint(0xaaaaaa);
+      layer.setTint(0x777777);
       layer.setScrollFactor(0);
       layer.setDepth(50 + i);
       layer.tileScaleX = cfg.tileScale;

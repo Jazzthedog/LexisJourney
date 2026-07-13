@@ -368,3 +368,32 @@ accumulates for a page's whole lifetime) that feeds into a precision-sensitive f
 clock) before it's used — never assume "it looked fine in my testing session" is sufficient,
 since agent-driven verification in this project reloads the page constantly (resetting
 `game.loop.time`), which structurally hides exactly this class of bug.**
+
+### `npm run dev`'s `DEBUG` shortcut silently skips Menu/Intro — don't diagnose a Menu/Intro visual bug against it
+
+`BootScene.create()` does `if (DEBUG) { this.scene.start("Game"); return; }`, landing straight on
+`GameScene`'s test-room fallback instead of the real `Menu -> Intro -> Game` flow. `DEBUG` is on
+for `npm run dev` (fast dev-iteration) but off in a real build. Spent a full round-trip
+diagnosing a reported Fog/Grain "washes out the whole screen" bug against `npm run dev` at
+`localhost:5173`, taking screenshots of what I assumed was `MenuScene` — it wasn't; `Menu`'s own
+`children.list` was empty (`game.scene.getScenes(true)` returned `["Game"]`, not `["Menu"]`).
+The over-strong Fog/Grain stacking was real, but everything I'd looked at up to that point (a
+bare test room, not the actual title screen or intro cutscene the user described) couldn't have
+confirmed or denied it. Fix: use `npm run build && npm run preview` (per this file's own
+Commands section — "the same way itch.io/GitHub Pages would") for any visual verification that
+depends on which scene is actually showing, and confirm the active scene via
+`game.scene.getScenes(true).map(s => s.scene.key)` before trusting a screenshot's content.
+
+### Real `wait()` time and simulated `game.loop.step()` time can desync by 10x+ under Chrome's background-tab throttling — use `step()` to reach a target elapsed time, not `wait()`
+
+Waiting 10 real seconds advanced `IntroScene.elapsedMs` by only ~350ms (throttled `setTimeout`
+ticks, same underlying cause as the documented tween/`Camera.fade()` real-time gotchas above) —
+reaching the intro's ball-pop/chase beat (~6s of in-scene time) by real waiting alone would have
+cost minutes of wall-clock tool time. `game.loop.step(t)` with a manually incremented `t` reaches
+a target `elapsedMs` in a handful of tool calls regardless of real wall-clock throttling — prefer
+it over `wait()` for reaching any specific simulated timestamp, not just for held-key sequences.
+One added wrinkle: each fresh `let t = performance.now()` in a **new** script-execution call
+resyncs to real wall-clock time, so the first `step()` after a gap can produce a much larger
+`elapsedMs` jump than `stepCount * 16.67` predicts (real time elapsed between tool calls gets
+"caught up" in one step) — harmless for reaching a target elapsed time, but don't assume step
+count alone predicts the resulting timestamp across separate script calls.

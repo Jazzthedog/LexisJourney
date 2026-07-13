@@ -38,7 +38,7 @@ void main(void) {
   // mediump) with no visible seam, since this is frame-to-frame static
   // noise, not a smooth animation.
   float wrappedTime = mod(uTime, 10.0);
-  float grain = (random(outTexCoord * wrappedTime * 100.0) - 0.5) * 0.12;
+  float grain = (random(outTexCoord * wrappedTime * 100.0) - 0.5) * 0.035;
   color.rgb += grain * uGrainEnabled;
 
   gl_FragColor = color;
