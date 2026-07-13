@@ -8,6 +8,12 @@ import { Ball } from "../entities/props/Ball";
 import { DigSpot } from "../entities/props/DigSpot";
 import { Crow } from "../entities/creatures/Crow";
 import { ScentSystem, ScentPoint } from "../systems/ScentSystem";
+import { PuzzleRegistry } from "../systems/PuzzleWiring";
+import { Lever } from "../entities/props/Lever";
+import { Gate } from "../entities/props/Gate";
+import { PressurePlate } from "../entities/props/PressurePlate";
+import { Seesaw, SeesawWeight } from "../entities/props/Seesaw";
+import { RopeHandle, Counterweight } from "../entities/props/Pulley";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -293,5 +299,97 @@ const sensesRoom: TestRoom = {
   },
 };
 
-export const TEST_ROOMS: TestRoom[] = [emptyRoom, moodRoom, physicsSandboxRoom, movementRoom, grabRoom, sensesRoom];
+// One long room strung with all five P2.1 puzzle bricks in sequence:
+// lever -> gate, rope/counterweight, seesaw, then the required combo —
+// a pressure plate holding a second gate open only while weighted, solved
+// by dragging the crate onto it since Lexi can't stand on the plate and
+// walk through the gate at the same time.
+const PROPS_PLATFORMS: PlatformSpec[] = [
+  { x: 500, y: 700, w: 1000, h: 40 }, // ground A: lever + gate 01
+  { x: 1150, y: 800, w: 340, h: 20 }, // safety net under the pulley gap
+  { x: 1400, y: 675, w: 200, h: 30 }, // ledge B: landing for the raised counterweight
+  { x: 1600, y: 700, w: 200, h: 40 }, // ground C: approach to the seesaw
+  { x: 2050, y: 700, w: 300, h: 40 }, // ground D: past the seesaw, crate sits here
+  { x: 2450, y: 700, w: 500, h: 40 }, // ground E: pressure plate + gate 02 combo
+];
+const PROPS_WORLD_WIDTH = 2900;
+const PROPS_WORLD_HEIGHT = 900;
+
+function seesawWeightSide(seesaw: Seesaw, bodies: Phaser.Physics.Arcade.Body[]): SeesawWeight {
+  const restsOn = (end: Phaser.GameObjects.Rectangle, body: Phaser.Physics.Arcade.Body): boolean => {
+    const b = end.getBounds();
+    const sensor = new Phaser.Geom.Rectangle(b.x, b.y - 20, b.width, b.height + 20);
+    const bodyRect = new Phaser.Geom.Rectangle(body.position.x, body.position.y, body.width, body.height);
+    return Phaser.Geom.Intersects.RectangleToRectangle(sensor, bodyRect);
+  };
+
+  for (const body of bodies) {
+    if (restsOn(seesaw.leftEnd, body)) return "left";
+    if (restsOn(seesaw.rightEnd, body)) return "right";
+  }
+  return "none";
+}
+
+const mechanicalPropsRoom: TestRoom = {
+  key: "7",
+  name: "Mechanical Props",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x141414);
+    scene.physics.world.setBounds(0, 0, PROPS_WORLD_WIDTH, PROPS_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, PROPS_WORLD_WIDTH, PROPS_WORLD_HEIGHT);
+
+    const platforms = buildPlatforms(scene, PROPS_PLATFORMS);
+    const registry = new PuzzleRegistry();
+
+    const gateA = new Gate(scene, 650, 610, 16, 140, "gate_01");
+    registry.register(gateA);
+    const lever = new Lever(scene, 250, 680, ["gate_01"], registry);
+
+    const ropeHandle = new RopeHandle(scene, 900, 650, 1);
+    scene.physics.add.collider(ropeHandle.gameObject, platforms);
+    const counterweight = new Counterweight(scene, 1150, 760, 660);
+
+    const seesaw = new Seesaw(scene, 1800, 690);
+
+    const crate = new Crate(scene, 2150, 650);
+    scene.physics.add.collider(crate.gameObject, platforms);
+
+    const gateB = new Gate(scene, 2550, 610, 16, 140, "gate_02");
+    registry.register(gateB);
+    const plate = new PressurePlate(scene, 2350, 680, 80, ["gate_02"], registry);
+
+    const grabCandidates: Grabbable[] = [lever, ropeHandle, crate];
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, { grabCandidates });
+
+    scene.physics.add.collider(lexi, platforms);
+    scene.physics.add.collider(lexi, gateA.gameObject);
+    scene.physics.add.collider(lexi, gateB.gameObject);
+    scene.physics.add.collider(lexi, ropeHandle.gameObject);
+    scene.physics.add.collider(lexi, crate.gameObject);
+    scene.physics.add.collider(lexi, counterweight.gameObject);
+    scene.physics.add.collider(lexi, seesaw.leftEnd);
+    scene.physics.add.collider(lexi, seesaw.rightEnd);
+    scene.physics.add.collider(crate.gameObject, gateA.gameObject);
+    scene.physics.add.collider(crate.gameObject, gateB.gameObject);
+
+    return {
+      update: (dt: number) => {
+        updatePlayerAndCamera(dt);
+        counterweight.update(ropeHandle.pullAmount);
+        seesaw.update(dt, seesawWeightSide(seesaw, [lexi.body]));
+        plate.update([lexi.body, crate.gameObject.body as Phaser.Physics.Arcade.Body]);
+      },
+    };
+  },
+};
+
+export const TEST_ROOMS: TestRoom[] = [
+  emptyRoom,
+  moodRoom,
+  physicsSandboxRoom,
+  movementRoom,
+  grabRoom,
+  sensesRoom,
+  mechanicalPropsRoom,
+];
 export const DEFAULT_ROOM_KEY = moodRoom.key;

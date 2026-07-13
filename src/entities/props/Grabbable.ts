@@ -4,7 +4,7 @@ import type { Lexi } from "../Lexi";
 // Shared contract for anything Lexi's GRAB state can attach to. "drag"
 // props (crates) get pushed along the ground and slow Lexi down by weight;
 // "carry" props (small items) ride in her mouth with no speed penalty.
-export type GrabbableKind = "drag" | "carry";
+export type GrabbableKind = "drag" | "carry" | "lever";
 
 export interface Grabbable {
   readonly kind: GrabbableKind;
