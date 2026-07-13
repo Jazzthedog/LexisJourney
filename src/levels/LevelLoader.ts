@@ -2,6 +2,9 @@ import Phaser from "phaser";
 import { createPlayerRig } from "../systems/PlayerRig";
 import { PuzzleRegistry } from "../systems/PuzzleWiring";
 import { CheckpointSystem, Snapshottable } from "../systems/CheckpointSystem";
+import { SaveSystem } from "../systems/SaveSystem";
+import { ClueSystem } from "../systems/ClueSystem";
+import { AudioSystem } from "../systems/AudioSystem";
 import { Crate } from "../entities/props/Crate";
 import { Ball } from "../entities/props/Ball";
 import { Lever } from "../entities/props/Lever";
@@ -12,7 +15,10 @@ import { WaterZone } from "../entities/props/WaterZone";
 import { WindZone } from "../entities/props/WindZone";
 import { TriggerZone } from "../entities/props/TriggerZone";
 import { RevealTarget } from "../entities/props/RevealTarget";
+import { FloatingLog } from "../entities/props/FloatingLog";
+import { MemoryToken } from "../entities/props/MemoryToken";
 import { Crow } from "../entities/creatures/Crow";
+import { Owl, OWL_CATCH_RADIUS } from "../entities/creatures/Owl";
 import { ScentSystem, ScentPoint } from "../systems/ScentSystem";
 import type { Grabbable } from "../entities/props/Grabbable";
 import type { SoundReactive } from "../entities/SoundReactive";
@@ -23,6 +29,10 @@ import type { SoundReactive } from "../entities/SoundReactive";
 const GROUND_TILESET_NAME = "ground"; // must match the "name" field on the tileset inside every .tmj
 const GROUND_TILESET_KEY = "level-ground-tile";
 const GROUND_TILESET_IMAGE_PATH = "tilesets/ground.png";
+
+// P2.2's river-crossing test room used the same threshold — how long Lexi
+// can be swimming (in a WaterZone, not grounded) before it counts as a fail.
+const SUBMERSION_LIMIT_MS = 3500;
 
 export interface LevelHandle {
   update: (dt: number) => void;
@@ -38,6 +48,18 @@ export function preloadLevel(scene: Phaser.Scene, mapKey: string): void {
 function propsOf(obj: Phaser.Types.Tilemaps.TiledObject): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const raw = (obj.properties ?? []) as Array<{ name: string; value: unknown }>;
+  for (const p of raw) {
+    out[p.name] = p.value;
+  }
+  return out;
+}
+
+// Same shape as object properties, but read off the map itself (Tiled
+// supports custom properties on the map, not just on individual objects) —
+// used for chapter-level metadata like `chapter` (SaveSystem's progress key).
+function mapPropsOf(map: Phaser.Tilemaps.Tilemap): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const raw = (map.properties ?? []) as Array<{ name: string; value: unknown }>;
   for (const p of raw) {
     out[p.name] = p.value;
   }
@@ -75,6 +97,10 @@ function num(value: unknown, fallback: number): number {
   return typeof value === "number" ? value : fallback;
 }
 
+function str(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
 function positionSnapshot(
   gameObject: Phaser.GameObjects.GameObject & { x: number; y: number },
 ): Snapshottable<{ x: number; y: number }> {
@@ -100,6 +126,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
   if (!tileset) {
     throw new Error(`LevelLoader: map "${mapKey}" has no tileset named "${GROUND_TILESET_NAME}"`);
   }
+  const chapter = str(mapPropsOf(map).chapter, mapKey);
 
   scene.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
   scene.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
@@ -116,6 +143,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
 
   const registry = new PuzzleRegistry();
   const checkpointSystem = new CheckpointSystem(scene);
+  const saveSystem = new SaveSystem();
 
   let spawnX = 100;
   let spawnY = 100;
@@ -126,6 +154,11 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
   const windZones: WindZone[] = [];
   const pressurePlates: PressurePlate[] = [];
   const triggerZones: TriggerZone[] = [];
+  const floatingLogs: FloatingLog[] = [];
+  const memoryTokens: MemoryToken[] = [];
+  const owls: Owl[] = [];
+  const crows: Crow[] = [];
+  const openGroundZones: Phaser.Geom.Rectangle[] = [];
   const collidableGameObjects: Phaser.GameObjects.GameObject[] = [];
   const weightBodies: Phaser.Physics.Arcade.Body[] = [];
   const scentPaths: ScentPoint[][] = [];
@@ -200,6 +233,31 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
         case "Crow": {
           const crow = new Crow(scene, center.x, center.y);
           soundReactive.push(crow);
+          crows.push(crow);
+          break;
+        }
+        case "Owl": {
+          owls.push(new Owl(scene, center.x, center.y));
+          break;
+        }
+        case "OpenGroundZone": {
+          openGroundZones.push(new Phaser.Geom.Rectangle(obj.x ?? 0, obj.y ?? 0, width, height));
+          break;
+        }
+        case "FloatingLog": {
+          const log = new FloatingLog(scene, center.x, center.y, width, height, num(props.bobPeriodS, 2), num(props.phaseOffset, 0));
+          floatingLogs.push(log);
+          break;
+        }
+        case "MemoryToken": {
+          const token = new MemoryToken(scene, center.x, center.y, str(props.tokenId, `${mapKey}_${obj.id}`));
+          memoryTokens.push(token);
+          if (props.startHidden) {
+            token.gameObject.setVisible(false);
+            if (typeof props.targetId === "string") {
+              registry.register(new RevealTarget(token.gameObject, props.targetId));
+            }
+          }
           break;
         }
         case "WaterZone": {
@@ -223,11 +281,30 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
           break;
         }
         case "CheckpointZone": {
-          triggerZones.push(new TriggerZone(scene, center.x, center.y, width, height, () => checkpointSystem.checkpoint()));
+          const checkpointId = str(props.checkpointId, `${mapKey}_${obj.id}`);
+          triggerZones.push(
+            new TriggerZone(scene, center.x, center.y, width, height, () => {
+              checkpointSystem.checkpoint();
+              saveSystem.setCheckpoint(chapter, checkpointId);
+            }),
+          );
           break;
         }
         case "FailZone": {
           triggerZones.push(new TriggerZone(scene, center.x, center.y, width, height, () => checkpointSystem.fail()));
+          break;
+        }
+        case "MapExit": {
+          const nextMap = props.nextMap;
+          if (typeof nextMap !== "string" || nextMap.length === 0) {
+            console.warn(`LevelLoader: MapExit (id=${obj.id}, map=${mapKey}) missing "nextMap" — skipped`);
+            break;
+          }
+          triggerZones.push(
+            new TriggerZone(scene, center.x, center.y, width, height, () => {
+              scene.scene.restart({ map: nextMap });
+            }),
+          );
           break;
         }
         default:
@@ -254,14 +331,42 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
   for (const obj of collidableGameObjects) {
     scene.physics.add.collider(lexi, obj);
   }
+  // Floating logs are kinematic (they don't rest on the ground themselves,
+  // per SPEC §5's physics note), so they only ever collide with what stands
+  // on them, never with the tile layers.
+  for (const log of floatingLogs) {
+    scene.physics.add.collider(lexi, log.gameObject);
+    for (const obj of collidableGameObjects) {
+      scene.physics.add.collider(obj, log.gameObject);
+    }
+  }
 
-  const scentSystem = scentPaths.length > 0 ? new ScentSystem(scene, scentPaths) : null;
+  const scentSystem = scentPaths.length > 0 ? new ScentSystem(scene, scentPaths, saveSystem.tokenCount) : undefined;
+  const audioSystem = new AudioSystem(scene);
+  audioSystem.setBed("forest");
+  lexi.on("bark", () => audioSystem.playBark());
+
+  const clueSystem = new ClueSystem(scene, saveSystem, scentSystem, audioSystem);
+  for (const token of memoryTokens) {
+    clueSystem.register(token);
+  }
 
   checkpointSystem.checkpoint(); // spawn itself counts as checkpoint zero
 
   return {
     update: (dt: number) => {
+      clueSystem.update(dt, lexi.x, lexi.y);
+      if (clueSystem.isPaused) {
+        return; // memory-echo vignette playing — the world holds still
+      }
+
       updatePlayerAndCamera(dt);
+      for (const log of floatingLogs) {
+        log.update(dt);
+      }
+      for (const crow of crows) {
+        crow.update(dt);
+      }
       for (const zone of windZones) {
         zone.update(dt);
       }
@@ -272,6 +377,24 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
         trigger.update(lexi.body);
       }
       scentSystem?.update(dt, lexi.isSniffing);
+
+      for (const owl of owls) {
+        owl.update(dt);
+        if (owl.isPerched && openGroundZones.some((zone) => Phaser.Geom.Rectangle.Contains(zone, lexi.x, lexi.y))) {
+          owl.triggerSwoop(lexi.x, lexi.y);
+        }
+        if (owl.isSwooping && Phaser.Math.Distance.Between(owl.x, owl.y, lexi.x, lexi.y) < OWL_CATCH_RADIUS) {
+          checkpointSystem.fail();
+        }
+      }
+
+      if (waterZones.length > 0) {
+        const inWater = waterZones.some((zone) => zone.contains(lexi.x, lexi.y));
+        audioSystem.setBed(inWater ? "river" : "forest");
+        if (lexi.waterSubmersionMs > SUBMERSION_LIMIT_MS) {
+          checkpointSystem.fail();
+        }
+      }
     },
   };
 }

@@ -46,16 +46,35 @@ and `height` both 0) use `x,y` directly.
 | `Gate` | rect | `targetId` (string, falls back to the object's Tiled name) | `props/Gate.ts`, a `Targetable` barrier. |
 | `PressurePlate` | rect | `targets` (comma-separated string) | `props/PressurePlate.ts`. Weighted by Lexi and by any spawned `Crate`/`Ball`. |
 | `DigSpot` | rect | `targets` (comma-separated string) | `props/DigSpot.ts`. Digging activates every listed target once (a one-shot reveal/open, never deactivates). |
+| `FloatingLog` | rect | `bobPeriodS`, `phaseOffset` (numbers, default 2 / 0) | `props/FloatingLog.ts`. Only collides with what stands on it, never the tile layers (it's kinematic, not resting ground). |
+| `MemoryToken` | point | `tokenId` (string, falls back to `<mapKey>_<objectId>`), `startHidden` (bool), `targetId` (string) | `props/MemoryToken.ts`, registered with a per-level `ClueSystem`. If `startHidden`, spawns invisible and registers a `RevealTarget` under `targetId` — same reveal convention as a hidden `Ball`. A hidden token can't be picked up until revealed, even if Lexi's standing on its buried spot. |
 | `Crow` | point | — | `creatures/Crow.ts`, flees on bark. |
-| `WaterZone` | rect | `currentVx` (number) | `props/WaterZone.ts`. |
+| `Owl` | point | — | `creatures/Owl.ts`. Perches until Lexi enters an `OpenGroundZone` while it's perched, then swoops at her; catching her is a `checkpointSystem.fail()`. |
+| `OpenGroundZone` | rect | — | Not an entity — a plain rectangle any perched `Owl` in the map checks Lexi's position against each frame. Multiple zones and multiple owls are both fine (any perched owl triggers if Lexi's in any zone). |
+| `WaterZone` | rect | `currentVx` (number) | `props/WaterZone.ts`. Whenever a map has at least one `WaterZone`, the loader automatically fails Lexi (`checkpointSystem.fail()`) if she's been swimming continuously for more than 3.5s, and crossfades the ambient bed to `"river"` while she's in any zone. |
 | `WindZone` | rect | `gustForceX`, `intervalMs`, `telegraphMs`, `gustDurationMs` (numbers, all optional with defaults) | `props/WindZone.ts`. |
-| `CheckpointZone` | rect | — | A `TriggerZone` wired to `checkpointSystem.checkpoint()`. |
+| `CheckpointZone` | rect | `checkpointId` (string, falls back to `<mapKey>_<objectId>`) | A `TriggerZone` wired to `checkpointSystem.checkpoint()`, which also calls `saveSystem.setCheckpoint(chapter, checkpointId)` — `chapter` comes from the map's own `chapter` property (see below), defaulting to the map key if unset. |
 | `FailZone` | rect | — | A `TriggerZone` wired to `checkpointSystem.fail()`. |
+| `MapExit` | rect | `nextMap` (string, required) | A `TriggerZone` that restarts the scene into the next map (`scene.scene.restart({ map: nextMap })`) — this is how a multi-map chapter chains together. Missing/empty `nextMap` logs a warning and does nothing (fail loud, don't silently strand the player). |
 
-Not yet supported by the loader (still test-room-only as of P3.1): `Seesaw`, `Pulley`/
-`Counterweight`, `FloatingLog`, `Owl`, `GuardDog`, `StrayDog`, `Branch`. Add a `case` to
-`LevelLoader.ts`'s object-type switch when a real chapter first needs one — the pattern is
-consistent for all of them (read `properties`, construct, push into the right array).
+Every level also gets a `SaveSystem`, `AudioSystem` (default `"forest"` bed, bark wired to
+Lexi's `bark` event), and a `ClueSystem` (registers every spawned `MemoryToken`, applies the
+persisted token-count buff to `ScentSystem` on load) automatically — no object needed to opt
+in.
+
+### Map-level properties
+
+Set on the **map itself** in Tiled (not an object) — same `{name, type, value}` shape, read
+once per level:
+
+| Property | Type | Used for |
+|---|---|---|
+| `chapter` | string | `SaveSystem.setCheckpoint(chapter, checkpointId)`'s first argument. Defaults to the map's own key if unset, so single test maps (like `ch1_senses`) don't need it. |
+
+Not yet supported by the loader: `Seesaw`, `Pulley`/`Counterweight`, `GuardDog`, `StrayDog`,
+`Branch`. Add a `case` to `LevelLoader.ts`'s object-type switch when a real chapter first
+needs one — the pattern is consistent for all of them (read `properties`, construct, push
+into the right array).
 
 ## Puzzle wiring (`targets`)
 
@@ -84,9 +103,26 @@ Draw a **Polyline** object anywhere in the map (any layer, any name) with **Type
    `update()` if the type needs its own per-frame call.
 4. Document the new type's properties in the table above.
 
-## Reference map
+## Chaining maps into a chapter
 
-`public/levels/ch1_senses.tmj` rebuilds the P1.3/P2.3 "Senses" test room (key `6`) as a Tiled
-map: a crow to bark off, a scent trail leading to a buried ball, and a fence you dig under —
-exercising tile collision, point/rect object spawning, `targets`-based puzzle wiring (both
-digspots), and a polyline scent path, purely as data.
+A `MapExit` at the end of one map and a `PlayerSpawn` near the start of the next is the whole
+mechanism — there's no separate "chapter" concept in code, just a sequence of maps that name
+each other. Give every map in the same chapter the same `chapter` map-level property so their
+`CheckpointZone`s all write to the same `SaveSystem` progress key. The last map in a chapter
+simply has no `MapExit`.
+
+## Reference maps
+
+- `public/levels/ch1_senses.tmj` rebuilds the P1.3/P2.3 "Senses" test room (key `6`) as a
+  single Tiled map: a crow to bark off, a scent trail leading to a buried ball, and a fence
+  you dig under — exercising tile collision, point/rect object spawning, `targets`-based
+  puzzle wiring (both digspots), and a polyline scent path, purely as data. Not chained to
+  anything (no `chapter` property, no `MapExit`) — it's a standalone loader smoke test, not
+  part of Chapter 1.
+- `public/levels/ch1_01_reststop.tmj` through `ch1_05_highway.tmj` are Chapter 1's five-map
+  blockout (PROMPTS P4.1), chained start to finish via `MapExit`/`PlayerSpawn`: a safe
+  move/jump intro, a crate-drag-and-boost teaching GRAB, a stream crossing on floating logs
+  (the first real hazard), owl territory (a safe crow first, then the swoop hazard), and the
+  highway fence (scent trail to a buried token, then dig under to finish). Three optional
+  Memory Tokens (a ball, a chewed stick, a car air-freshener) are reachable off the direct
+  path — none are required to reach the next map.

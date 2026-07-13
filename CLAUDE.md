@@ -215,3 +215,63 @@ track `step(t)` accurately per the original gotcha) or test the dependent logic
 cost real time on P3.3's footstep verification before landing on: test each contributing piece
 precisely instead of chasing one end-to-end live observation that this specific session's
 tab state couldn't produce.
+
+### Arcade Physics can't "cut the corner" — a jumping body must fully clear a platform's top surface before it can pass the platform's side face
+
+A jump arc that's still below a platform's top-surface line when it reaches the platform's
+horizontal footprint gets **wall-blocked** by the platform's side face, even if the arc would
+otherwise have cleared the top a moment later. This isn't a bug, it's plain AABB collision (no
+corner-rounding, no "step-up" assist), but it makes eyeballed level geometry deceptive: a gap
+that "looks" tall/wide enough on paper can be mathematically impossible once you account for
+it, because a rising body can't cut diagonally through the corner — it must be *entirely* above
+the target surface (its own bottom edge, not just its center) before advancing horizontally
+into that column range.
+
+P4.1's `ch1_02_woods` crate-boost puzzle hit this twice, both confirmed via `game.loop.step()`
+frame tracing (not guesswork):
+
+1. The elevated ledge was placed so a **fully uncut** vertical jump from the crate's top
+   (`velocity.y` held until it naturally turns non-negative, no early `JUMP_CUT` release) peaked
+   **1.4px short** of clearing the ledge's top surface. No amount of retiming the horizontal
+   drift could fix this — the vertical ceiling on jump height (`JUMP_VELOCITY² / (2×gravity)`)
+   is fixed, so if the *best possible* straight-up jump doesn't clear with margin, no diagonal
+   attempt will either. Fix: move the ledge down one tile row (~30px more clearance instead of
+   ~1px).
+2. A side platform (the stick's spur) floating exactly 2 tile-rows above a walkable ledge left
+   only 32px of clear air below it (64px gap minus the platform's own 32px), but Lexi's body is
+   46px tall — a guaranteed 14px overlap that wall-blocks anyone trying to walk underneath,
+   regardless of where the pair sits vertically (the deficit is `bodyHeight - (gapRows×32 -
+   32)`, independent of absolute height). Any two vertically-stacked platforms need `gap ≥
+   bodyHeight + platformHeight` (here, 3 tile-rows, not 2) if a walkway is meant to pass beneath.
+
+The same issue also hit `ch1_03_stream`'s river crossing: a 103px same-height gap between the
+last floating log and the far bank was small enough to *look* trivial, but both a running jump
+and a plain walk-off-the-log attempt consistently hit the bank's left face 13px short of its
+edge, because the fall arc dipped below the bank's surface line before reaching its column.
+**When two things are at the same height** (not one elevated above the other), there's no "rise
+above it first" option at all — the gap itself must be small enough to cross while still at or
+above the target's surface line, which for a normal running jump is a much smaller distance
+than the jump's total horizontal range would suggest. Fix: shrink the gap (moved the bank
+closer), rather than trying to out-time the arc.
+
+**When authoring/verifying a jump-reachability puzzle:** don't just check "does the max jump
+height exceed the vertical gap" — separately check "is there still comfortable margin once you
+account for horizontal clearance needed *before* crossing into the target's column," and for
+same-height gaps, verify a *flat* crossing (not just a maximal arc) actually lands solid via
+`game.loop.step()` tracing, not visual inspection of the `.tmj` coordinates.
+
+### A prop/creature's own `update()` must be explicitly wired into `LevelLoader`'s per-frame loop, or its state changes have zero visible effect
+
+`Crow.onBark()` correctly flips its internal `fleeing` flag (confirmed via `crow.isPerched`),
+but `Crow.update()` — the method that actually moves `gameObject.x/y` once `fleeing` is true —
+was never called anywhere. `LevelLoader.ts` pushes crows into the `soundReactive` array (used
+only for the bark-radius lookup in `Lexi.updateBark`), but unlike `owls`/`floatingLogs`/
+`windZones`, there was no matching `for (const c of crows) c.update(dt)` in the returned
+`update()` closure. Symptom: barking at the crow "worked" (no error, state changed correctly)
+but the crow just sat there forever — easy to miss because the bug is a *missing* line, not a
+wrong one, and every other signal (event fired, flag flipped) looked correct. Fix: give it its
+own tracked array (`const crows: Crow[] = []`, parallel to `owls`) and add the update loop call.
+**When adding a new prop/creature type to `LevelLoader.ts`, check whether it has its own
+`update(dt)` method** — if it does, it needs an explicit per-frame call in the returned closure;
+being reachable via some other array (like `grabCandidates` or `soundReactive`) for a *different*
+purpose does not substitute for that.

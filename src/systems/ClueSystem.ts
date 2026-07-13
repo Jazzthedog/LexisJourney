@@ -54,7 +54,10 @@ export class ClueSystem {
     }
 
     for (const token of this.tokens) {
-      if (token.isCollected) {
+      // A token can be spawned invisible (P4.1: buried, revealed by a
+      // DigSpot's `targets`) — not visible yet means not pickupable yet,
+      // even if Lexi's standing right on top of where it's buried.
+      if (token.isCollected || !token.gameObject.visible) {
         continue;
       }
       const dist = Phaser.Math.Distance.Between(lexiX, lexiY, token.gameObject.x, token.gameObject.y);
