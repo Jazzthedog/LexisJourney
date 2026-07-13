@@ -331,3 +331,40 @@ frames), but `Camera.fade()` is a different subsystem than `scene.tweens` — do
 existing tween gotcha "covers" every Phaser effect; camera fades, camera shake, and any other
 `Camera.*` effect need the same "step well past its stated duration, or wait for its own
 callback" treatment.
+
+### `Grain.ts`'s shader fed an unbounded, ever-growing time value into a `mediump` `sin()`-based noise function — worked fine for minutes, then degraded into visible banding
+
+A real player reported the game going from normal grain to heavy horizontal/vertical banding
+that made the screen nearly unreadable "at this point" (i.e., after some accumulated play
+time, not on fresh load) — zero console errors, since nothing throws. Root cause:
+`GrainPipeline.onPreRender()` sets `uTime = this.game.loop.time / 1000`, the total seconds
+since the `Phaser.Game` instance booted, which **never resets** for the whole page lifetime
+(menu time + every scene transition + all gameplay all add up). The fragment shader fed that
+raw value into `random(outTexCoord * uTime * 100.0)`, so a few minutes into a real session the
+argument to `sin()` is in the tens of thousands. `precision mediump float` (required here —
+`highp` isn't guaranteed to exist on the mobile GPUs this game targets) only guarantees ~10
+bits of relative precision; by the GLSL ES spec that's a *relative*, not fixed-format,
+guarantee, so the absolute rounding step (the ULP) grows every time the operand magnitude
+grows. Nearby pixels' inputs eventually round to the *same* quantized value, collapsing what
+should be per-pixel static into visible flat bands whose width keeps growing the longer the
+session runs — a bug that gets categorically worse over time, not one that's simply present or
+absent. Fix: wrap the time value before it ever reaches the noise function —
+`float wrappedTime = mod(uTime, 10.0);` — bounding the magnitude fed into `sin()` regardless of
+real session length. No visible seam, since this is frame-to-frame static noise, not a smooth
+animation.
+
+**This class of bug is close to unverifiable on a desktop dev machine.** Chrome's ANGLE/D3D11
+backend on Windows silently promotes `mediump` to full 32-bit float regardless of the shader's
+declared precision qualifier — forcing `uTime` to `10,000,000` and screenshotting produced *no*
+visible degradation at all in this environment, even though the bug is real and reproduces on
+real (especially mobile/lower-end) GPUs that actually honor `mediump`. **Don't treat "looks
+fine when I force extreme values in Chrome-on-Windows" as proof a `mediump` precision fix
+worked (or that a `mediump` precision bug doesn't exist)** — verify the *mechanism*
+analytically instead (does the value being fed into a `mediump` transcendental function grow
+without bound as a function of session length, yes/no), not the pixels on this specific
+desktop GPU/driver. **Any shader value derived from `game.loop.time` (or anything else that
+accumulates for a page's whole lifetime) that feeds into a precision-sensitive function
+(`sin`/`cos`/hash-style noise) needs an explicit bound (`mod`, or reseed from a per-effect
+clock) before it's used — never assume "it looked fine in my testing session" is sufficient,
+since agent-driven verification in this project reloads the page constantly (resetting
+`game.loop.time`), which structurally hides exactly this class of bug.**

@@ -28,7 +28,17 @@ void main(void) {
   float vignetteFloor = mix(0.35, 0.7, uHighContrast);
   color.rgb *= mix(vignetteFloor, 1.0, vignette);
 
-  float grain = (random(outTexCoord * uTime * 100.0) - 0.5) * 0.12;
+  // uTime grows for the entire lifetime of the page (never resets between
+  // scenes). Feeding it raw into sin()-based random() drives the argument
+  // into the tens of thousands within a few minutes of real play; at
+  // mediump precision (~10-bit mantissa, required here for broad GPU
+  // compatibility) sin()'s range reduction at that magnitude collapses many
+  // distinct pixels to the same quantized output, turning per-pixel grain
+  // into visible banding. Wrapping keeps the argument small (safe for
+  // mediump) with no visible seam, since this is frame-to-frame static
+  // noise, not a smooth animation.
+  float wrappedTime = mod(uTime, 10.0);
+  float grain = (random(outTexCoord * wrappedTime * 100.0) - 0.5) * 0.12;
   color.rgb += grain * uGrainEnabled;
 
   gl_FragColor = color;
