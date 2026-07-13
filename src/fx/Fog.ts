@@ -56,12 +56,15 @@ export class FogLayers {
   private layers: Phaser.GameObjects.TileSprite[] = [];
   private driftSpeeds: number[] = [];
 
-  constructor(scene: Phaser.Scene, width: number, height: number) {
+  // `densityMultiplier` scales every layer's base alpha (PROMPTS P4.3's
+  // per-map fog density) — 1 keeps the original P0.2 look, <1 thins it out,
+  // >1 thickens it (see fx/Palette.ts's per-map presets).
+  constructor(scene: Phaser.Scene, width: number, height: number, densityMultiplier = 1) {
     const key = ensureFogTexture(scene);
 
     LAYER_CONFIGS.forEach((cfg, i) => {
       const layer = scene.add.tileSprite(width / 2, height / 2, width, height, key);
-      layer.setAlpha(cfg.alpha);
+      layer.setAlpha(Phaser.Math.Clamp(cfg.alpha * densityMultiplier, 0, 1));
       layer.setTint(0xaaaaaa);
       layer.setScrollFactor(0);
       layer.setDepth(50 + i);

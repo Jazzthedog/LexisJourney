@@ -278,3 +278,41 @@ own tracked array (`const crows: Crow[] = []`, parallel to `owls`) and add the u
 `update(dt)` method** — if it does, it needs an explicit per-frame call in the returned closure;
 being reachable via some other array (like `grabCandidates` or `soundReactive`) for a *different*
 purpose does not substitute for that.
+
+### `scene.textures.createCanvas(...)`-generated textures need a real wall-clock wait after `scene.restart()`, not just `game.loop.step()`
+
+P4.3's `ParallaxLayers`/`FogLayers` build their silhouette textures via `scene.textures
+.createCanvas(...)` + synchronous 2D-context drawing inside `buildLevel()`, called from
+`create()` — that part *is* synchronous and finishes within the current call. But
+`scene.restart({ map })` itself (see the existing `scene.scene.restart()`/`scene.scene.start()`
+gotcha above) only takes effect once the SceneManager processes it on a real tick, and asset
+loading queued in `preload()` (the tileset PNG, the `.tmj` itself) resolves via the browser's
+actual network/decode pipeline — a real async operation on the browser's event loop, not
+something `game.loop.step(t)`'s simulated clock advances. Stepping 30 simulated frames
+immediately after calling `restart()` in one synchronous script produced `scene.children.list`
+still empty and every `scene.textures.exists(...)` check `false`, even for textures a completely
+separate, unrelated system (`fx-fog-blob`) had already created successfully earlier — because
+the whole scene hadn't actually rebuilt yet. Inserting a genuine `await new Promise(r =>
+setTimeout(r, 500-800))` between `restart()` and the first `step()` call fixed it immediately.
+**Any verification script that calls `scene.restart()` on a scene whose `preload()` loads
+assets needs a real await, not just more `step()` calls, before reading anything from the new
+scene** — `step()` alone is only sufficient for scenes with nothing left to load.
+
+### Monochrome silhouette layering needs a lightness *gradient*, not uniform near-black, or background depth reads as nothing
+
+P4.3's first pass at `ParallaxLayers`' four background bands (ridge/far-trees/mid-trees/scrub)
+and `Decoration.ts`'s tree/rock/bush silhouettes all used near-black fills (`0x02`–`0x0a`)
+on the theory that "monochrome silhouette" meant everything should be as dark as Lexi herself.
+Rendered against an also-near-black camera background (`fx/Palette.ts`'s `backgroundColor`,
+itself further darkened by `fx/Grain.ts`'s always-on vignette and the fog bands sitting on top),
+the result was visually almost nothing — confirmed by an actual renderer screenshot, not by
+reading the hex values and assuming they'd look fine. The fix was an atmospheric-perspective
+gradient: the *farthest* parallax band is the *lightest* grey (`0x2e2e2e`), each closer band
+gets darker, and decorations sit a shade lighter than Lexi/gameplay props (`0x1c1c1c`/`0x26`
+vs. her `0x0a0a0a`) rather than matching them — so depth reads through contrast, and Lexi/
+interactive elements stay the visually darkest, most-readable layer. Also had to roughly halve
+every `Palette.ts` `ambientDarkness` value for the same reason: it stacks additively with the
+vignette and fog rather than replacing them, and the original values crushed everything under
+it. **When tuning a new monochrome/silhouette visual layer, screenshot the actual rendered
+frame before deciding the color values are right** — hex math on paper doesn't reveal that two
+"different" near-black fills are visually indistinguishable once composited.

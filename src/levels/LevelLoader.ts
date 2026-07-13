@@ -18,10 +18,19 @@ import { RevealTarget } from "../entities/props/RevealTarget";
 import { FloatingLog } from "../entities/props/FloatingLog";
 import { MemoryToken } from "../entities/props/MemoryToken";
 import { Crow } from "../entities/creatures/Crow";
-import { Owl, OWL_CATCH_RADIUS } from "../entities/creatures/Owl";
+import { Owl, OWL_CATCH_RADIUS, OWL_SCARE_RADIUS } from "../entities/creatures/Owl";
+import { Decoration, DecorationVariant } from "../entities/props/Decoration";
 import { ScentSystem, ScentPoint } from "../systems/ScentSystem";
+import { getPalette } from "../fx/Palette";
+import { FogLayers } from "../fx/Fog";
+import { ParallaxLayers } from "../fx/Parallax";
 import type { Grabbable } from "../entities/props/Grabbable";
 import type { SoundReactive } from "../entities/SoundReactive";
+
+const DECORATION_VARIANTS: DecorationVariant[] = ["tree", "rock", "fencePost", "bush"];
+function decorationVariantOf(value: unknown): DecorationVariant {
+  return DECORATION_VARIANTS.includes(value as DecorationVariant) ? (value as DecorationVariant) : "tree";
+}
 
 // All levels currently share one placeholder tileset (no real art until
 // P4.3) — this is a deliberate convention, not a limitation of the parser
@@ -130,6 +139,21 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
 
   scene.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
   scene.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+
+  // PROMPTS P4.3: per-map atmosphere. The ambient overlay is a plain
+  // screen-fixed rectangle rather than a shader uniform (GrainPipeline
+  // already owns the vignette) — depth 45 sits above gameplay/decorations
+  // (0) but below the fog bands (50+), so fog still reads as glowing faintly
+  // even through the darkened scene.
+  const palette = getPalette(mapKey);
+  scene.cameras.main.setBackgroundColor(palette.backgroundColor);
+  const { width: viewWidth, height: viewHeight } = scene.scale;
+  scene.add
+    .rectangle(viewWidth / 2, viewHeight / 2, viewWidth, viewHeight, 0x000000, palette.ambientDarkness)
+    .setScrollFactor(0)
+    .setDepth(45);
+  const fog = new FogLayers(scene, viewWidth, viewHeight, palette.fogDensity);
+  const parallax = new ParallaxLayers(scene, viewWidth, viewHeight, map.widthInPixels, map.heightInPixels);
 
   const tileLayers: Phaser.Tilemaps.TilemapLayer[] = [];
   for (const layerData of map.layers) {
@@ -307,6 +331,10 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
           );
           break;
         }
+        case "Decoration": {
+          new Decoration(scene, center.x, center.y, decorationVariantOf(props.variant), num(props.scale, 1));
+          break;
+        }
         default:
           console.warn(`LevelLoader: unknown object type "${type}" (id=${obj.id}, map=${mapKey}) — skipped`);
       }
@@ -346,7 +374,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
   audioSystem.setBed("forest");
   lexi.on("bark", () => audioSystem.playBark());
 
-  const clueSystem = new ClueSystem(scene, saveSystem, scentSystem, audioSystem);
+  const clueSystem = new ClueSystem(scene, lexi, saveSystem, scentSystem, audioSystem);
   for (const token of memoryTokens) {
     clueSystem.register(token);
   }
@@ -377,16 +405,25 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
         trigger.update(lexi.body);
       }
       scentSystem?.update(dt, lexi.isSniffing);
+      fog.update(dt);
+      parallax.update(dt, scene.cameras.main.scrollX);
 
+      let threatened = false;
       for (const owl of owls) {
         owl.update(dt);
         if (owl.isPerched && openGroundZones.some((zone) => Phaser.Geom.Rectangle.Contains(zone, lexi.x, lexi.y))) {
           owl.triggerSwoop(lexi.x, lexi.y);
         }
-        if (owl.isSwooping && Phaser.Math.Distance.Between(owl.x, owl.y, lexi.x, lexi.y) < OWL_CATCH_RADIUS) {
-          checkpointSystem.fail();
+        if (owl.isSwooping) {
+          const dist = Phaser.Math.Distance.Between(owl.x, owl.y, lexi.x, lexi.y);
+          if (dist < OWL_CATCH_RADIUS) {
+            checkpointSystem.fail();
+          } else if (dist < OWL_SCARE_RADIUS) {
+            threatened = true;
+          }
         }
       }
+      lexi.setThreatened(threatened);
 
       if (waterZones.length > 0) {
         const inWater = waterZones.some((zone) => zone.contains(lexi.x, lexi.y));

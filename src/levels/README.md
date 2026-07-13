@@ -22,10 +22,15 @@ Any layer with `"type": "tilelayer"` is collidable — every non-empty cell beco
 ground, and the tile image itself *is* the visual (no separate art layer needed at this
 stage). All maps currently share one tileset, named `ground` (must match the tileset's
 `"name"` field in the `.tmj`, since `LevelLoader` looks it up by that name), backed by
-`public/tilesets/ground.png`. This is a deliberate placeholder-art-era convention, not a
-structural limit — the tile-collision code itself doesn't care what the tileset looks like.
-Swap in real per-chapter tilesets once P4.3's art pass lands; until then, every map should
-just reference the `ground` tileset with `firstgid: 1`.
+`public/tilesets/ground.png` — a 32×128 vertical strip of 4 tile variants (PROMPTS P4.3):
+GID 1 = dirt/forest floor, GID 2 = rock (elevated ledges, spurs), GID 3 = fence-ground
+(around a `Gate` styled as a fence), GID 4 = underbrush (safety floors — a visual cue that
+you fell). `firstgid: 1`, `columns: 1`, `tilecount: 4` in every map's `tilesets` entry.
+Which GID a given ground row paints is purely an authoring choice (the collision code
+treats every non-zero GID identically) — see `make-chapter1.mjs`'s `paintRow(..., tile)`
+param for the generator-script convention. Regenerate the tileset image itself via the
+scratchpad's `make-ground-tileset.mjs` (a hand-rolled PNG encoder — no canvas/pngjs
+dependency, matching this project's generate-placeholder-art-in-code convention).
 
 ## Object layers
 
@@ -56,11 +61,25 @@ and `height` both 0) use `x,y` directly.
 | `CheckpointZone` | rect | `checkpointId` (string, falls back to `<mapKey>_<objectId>`) | A `TriggerZone` wired to `checkpointSystem.checkpoint()`, which also calls `saveSystem.setCheckpoint(chapter, checkpointId)` — `chapter` comes from the map's own `chapter` property (see below), defaulting to the map key if unset. |
 | `FailZone` | rect | — | A `TriggerZone` wired to `checkpointSystem.fail()`. |
 | `MapExit` | rect | `nextMap` (string, required) | A `TriggerZone` that restarts the scene into the next map (`scene.scene.restart({ map: nextMap })`) — this is how a multi-map chapter chains together. Missing/empty `nextMap` logs a warning and does nothing (fail loud, don't silently strand the player). |
+| `Decoration` | point | `variant` (`"tree"`\|`"rock"`\|`"fencePost"`\|`"bush"`, falls back to `"tree"`), `scale` (number, default 1) | `props/Decoration.ts`. Pure background dressing — no physics body, no per-frame update, nothing reads it back. Its base sits at the object's own `y`; place it at whatever ground-row's surface height it should stand on. |
 
 Every level also gets a `SaveSystem`, `AudioSystem` (default `"forest"` bed, bark wired to
-Lexi's `bark` event), and a `ClueSystem` (registers every spawned `MemoryToken`, applies the
-persisted token-count buff to `ScentSystem` on load) automatically — no object needed to opt
-in.
+Lexi's `bark` event), a `ClueSystem` (registers every spawned `MemoryToken`, applies the
+persisted token-count buff to `ScentSystem` on load), a 3-layer `FogLayers`, and a 5-layer
+`ParallaxLayers` (PROMPTS P4.3 — see below) automatically — no object needed to opt in.
+
+### Per-map atmosphere (`fx/Palette.ts`)
+
+Not a Tiled property — a plain lookup table in `fx/Palette.ts`, keyed by `mapKey`, read once
+per level. Each entry sets the camera's background color, an `ambientDarkness` overlay alpha
+(a screen-fixed rectangle at depth 45 — above gameplay, below the fog bands, so fog still
+reads as glowing faintly through the darkened scene), and a `fogDensity` multiplier on
+`FogLayers`' base per-layer alpha. Add an entry when a new map needs a deliberately different
+mood; unlisted maps fall back to a sensible default. Keep `ambientDarkness` low (≲0.15) —
+`fx/Grain.ts`'s shader vignette already darkens the frame edges on every map, and stacking a
+second darkening layer on top of that plus the fog bands crushes the tileset/decoration
+detail underneath it fast (confirmed by screenshotting the actual renderer output, not just
+tuning the numbers blind).
 
 ### Map-level properties
 

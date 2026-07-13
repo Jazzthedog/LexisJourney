@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import type { MemoryToken } from "../entities/props/MemoryToken";
 import { MemoryEchoVignette } from "../fx/MemoryEchoVignette";
+import type { Lexi } from "../entities/Lexi";
 import type { SaveSystem } from "./SaveSystem";
 import type { ScentSystem } from "./ScentSystem";
 import type { AudioSystem } from "./AudioSystem";
@@ -22,14 +23,16 @@ const PICKUP_RANGE = 40; // px
 // actual freeze lives here.
 export class ClueSystem {
   private readonly scene: Phaser.Scene;
+  private readonly lexi: Lexi;
   private readonly saveSystem: SaveSystem;
   private readonly scentSystem?: ScentSystem;
   private readonly audioSystem?: AudioSystem;
   private readonly tokens: MemoryToken[] = [];
   private vignette: MemoryEchoVignette | null = null;
 
-  constructor(scene: Phaser.Scene, saveSystem: SaveSystem, scentSystem?: ScentSystem, audioSystem?: AudioSystem) {
+  constructor(scene: Phaser.Scene, lexi: Lexi, saveSystem: SaveSystem, scentSystem?: ScentSystem, audioSystem?: AudioSystem) {
     this.scene = scene;
+    this.lexi = lexi;
     this.saveSystem = saveSystem;
     this.scentSystem = scentSystem;
     this.audioSystem = audioSystem;
@@ -73,6 +76,7 @@ export class ClueSystem {
     this.saveSystem.addToken(token.id);
     this.scentSystem?.setTokenBuff(this.saveSystem.tokenCount);
     this.audioSystem?.playWhistleMotif();
+    this.lexi.celebrate(); // SPEC §4's "wag on token pickup" (PROMPTS P4.3)
     this.scene.physics.pause();
     this.vignette = new MemoryEchoVignette(this.scene, () => {
       this.vignette = null;

@@ -13,6 +13,10 @@ const RETURN_SPEED = 260; // px/s
 const REACHED_EPSILON = 4;
 
 export const OWL_CATCH_RADIUS = 30; // px — how close during SWOOP counts as caught; the room decides the consequence
+// Wider than the catch radius — close enough that a swooping owl reads as
+// "coming for you" (Lexi's tail tucks, PROMPTS P4.3) before it's actually
+// close enough to end the attempt.
+export const OWL_SCARE_RADIUS = 90;
 
 // Swoops at Lexi's position when the room tells it to (crossing open
 // ground), then returns to perch. Deliberately no pathfinding: swoop and

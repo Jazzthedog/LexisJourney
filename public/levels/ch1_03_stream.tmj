@@ -11,7 +11,7 @@
   "type": "map",
   "version": "1.10",
   "nextlayerid": 3,
-  "nextobjectid": 9,
+  "nextobjectid": 14,
   "properties": [
     {
       "name": "chapter",
@@ -1956,6 +1956,116 @@
               "value": "ch1_04_owl"
             }
           ]
+        },
+        {
+          "id": 9,
+          "name": "deco_tree_01",
+          "type": "Decoration",
+          "x": 150,
+          "y": 672,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "visible": true,
+          "point": true,
+          "properties": [
+            {
+              "name": "variant",
+              "type": "string",
+              "value": "tree"
+            },
+            {
+              "name": "scale",
+              "type": "float",
+              "value": 1.2
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "name": "deco_tree_02",
+          "type": "Decoration",
+          "x": 450,
+          "y": 672,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "visible": true,
+          "point": true,
+          "properties": [
+            {
+              "name": "variant",
+              "type": "string",
+              "value": "tree"
+            },
+            {
+              "name": "scale",
+              "type": "float",
+              "value": 0.9
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "name": "deco_bush_01",
+          "type": "Decoration",
+          "x": 250,
+          "y": 672,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "visible": true,
+          "point": true,
+          "properties": [
+            {
+              "name": "variant",
+              "type": "string",
+              "value": "bush"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "name": "deco_tree_03",
+          "type": "Decoration",
+          "x": 1450,
+          "y": 672,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "visible": true,
+          "point": true,
+          "properties": [
+            {
+              "name": "variant",
+              "type": "string",
+              "value": "tree"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "name": "deco_tree_04",
+          "type": "Decoration",
+          "x": 1650,
+          "y": 672,
+          "width": 0,
+          "height": 0,
+          "rotation": 0,
+          "visible": true,
+          "point": true,
+          "properties": [
+            {
+              "name": "variant",
+              "type": "string",
+              "value": "tree"
+            },
+            {
+              "name": "scale",
+              "type": "float",
+              "value": 1.3
+            }
+          ]
         }
       ]
     }
@@ -1965,12 +2075,12 @@
       "columns": 1,
       "firstgid": 1,
       "image": "../tilesets/ground.png",
-      "imageheight": 32,
+      "imageheight": 128,
       "imagewidth": 32,
       "margin": 0,
       "name": "ground",
       "spacing": 0,
-      "tilecount": 1,
+      "tilecount": 4,
       "tileheight": 32,
       "tilewidth": 32
     }

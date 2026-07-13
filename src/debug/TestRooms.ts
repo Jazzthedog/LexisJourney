@@ -292,10 +292,6 @@ const sensesRoom: TestRoom = {
     const scentSystem = new ScentSystem(scene, [SENSES_SCENT_PATH], saveSystem.tokenCount);
     const audioSystem = new AudioSystem(scene);
     audioSystem.setBed("forest");
-    const clueSystem = new ClueSystem(scene, saveSystem, scentSystem, audioSystem);
-
-    const token = new MemoryToken(scene, 950, 650, SENSES_TOKEN_ID);
-    clueSystem.register(token);
 
     const grabCandidates: Grabbable[] = [ball];
     const soundReactive = [crow];
@@ -309,6 +305,10 @@ const sensesRoom: TestRoom = {
     scene.physics.add.collider(lexi, platforms);
     scene.physics.add.collider(lexi, fence);
     lexi.on("bark", () => audioSystem.playBark());
+
+    const clueSystem = new ClueSystem(scene, lexi, saveSystem, scentSystem, audioSystem);
+    const token = new MemoryToken(scene, 950, 650, SENSES_TOKEN_ID);
+    clueSystem.register(token);
 
     return {
       update: (dt: number) => {

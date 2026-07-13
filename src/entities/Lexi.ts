@@ -6,6 +6,12 @@ import type { DigSpot } from "./props/DigSpot";
 import type { WaterZone } from "./props/WaterZone";
 import type { WindZone } from "./props/WindZone";
 
+// SPEC §4: "tail as an emotion channel — tail animation = the entire
+// facial-expression budget." Priority order (highest first): happy (a
+// pickup-triggered wag burst) beats scared (real danger) beats curious
+// (actively sniffing) beats the neutral resting pose.
+export type LexiEmotion = "neutral" | "curious" | "scared" | "happy";
+
 export enum LexiState {
   IDLE = "IDLE",
   RUN = "RUN",
@@ -65,6 +71,26 @@ const WATER_MAX_SINK_SPEED = 60; // px/s cap on downward speed while swimming �
 const BODY_WIDTH = 26;
 const BODY_HEIGHT = 46;
 
+// Tail rig (SPEC §4's emotion channel). Angles in radians, Phaser's y-down
+// convention: negative = tip swings up, positive = tip swings down.
+const TAIL_ANGLE_NEUTRAL = -0.15;
+const TAIL_ANGLE_CURIOUS = -0.55;
+const TAIL_ANGLE_SCARED = 0.45;
+const TAIL_WAG_AMPLITUDE = 0.35;
+const TAIL_WAG_HZ_RUN = 3.2; // wag frequency while running (a loose trot rhythm)
+const TAIL_WAG_HZ_HAPPY = 7; // fast excited wag on a token pickup
+// A spring-like follow-through, not a snap: the tail chases its target angle
+// at a capped rate per second rather than jumping straight to it, so a
+// sudden emotion change (e.g. an owl swoop) reads as a flinch, not a cut.
+const TAIL_FOLLOW_RATE = 9; // rad/s max chase speed
+const EAR_ANGLE_ALERT = 0.12; // perked, facing slightly forward
+const EAR_ANGLE_SCARED = 0.65; // flattened back
+const EAR_FOLLOW_RATE = 10;
+const CELEBRATE_MS = 1300; // ClueSystem calls celebrate() on a Memory Token pickup
+const SCARED_SUBMERSION_MS = 1500; // "getting worried" threshold while swimming
+const RUN_BOB_HZ = 4.6;
+const RUN_BOB_AMPLITUDE = 2.2; // px
+
 export class Lexi extends Phaser.GameObjects.Container {
   declare body: Phaser.Physics.Arcade.Body;
 
@@ -91,6 +117,23 @@ export class Lexi extends Phaser.GameObjects.Container {
   private activeCurrentVx = 0;
   private activeGustVx = 0;
 
+  // Silhouette rig (PROMPTS P4.3): tail/ears are separate child GameObjects
+  // whose *rotation* is driven manually every frame, deliberately not via
+  // Phaser tweens — visualRoot's own scaleX/scaleY is already tween-owned by
+  // playLandSquash/playBarkAnimation, and rotation is an orthogonal property
+  // on different objects, so there's no risk of repeating the "two systems
+  // fighting over the same transform" bug the visualRoot split originally
+  // fixed. A per-frame value also tracks game.loop.step() exactly, unlike a
+  // tween (see CLAUDE.md's tween-vs-manual-stepping gotcha).
+  private tail!: Phaser.GameObjects.Container;
+  private earFront!: Phaser.GameObjects.Triangle;
+  private earBack!: Phaser.GameObjects.Triangle;
+  private tailAngle = TAIL_ANGLE_NEUTRAL;
+  private earAngle = EAR_ANGLE_ALERT;
+  private runCycleMs = 0;
+  private celebrateTimerMs = 0;
+  private threatened = false;
+
   constructor(scene: Phaser.Scene, x: number, y: number, inputMap: InputMap) {
     super(scene, x, y);
     this.inputMap = inputMap;
@@ -108,7 +151,22 @@ export class Lexi extends Phaser.GameObjects.Container {
     const eyeBack = scene.add.ellipse(6, -7, 5, 5, 0xffffff);
     const collar = scene.add.rectangle(5, -1, 15, 5, 0xaa3333);
 
-    this.visualRoot = scene.add.container(0, 0, [capsule, eyeFront, eyeBack, collar]);
+    // Pointed ears (SPEC §4's "readable animal silhouette"), pivoted near
+    // their base so `.rotation` swings the tip rather than the whole ear
+    // sliding sideways.
+    this.earFront = scene.add.triangle(9, -19, -4, 6, 0, -9, 4, 6, 0x0a0a0a);
+    this.earBack = scene.add.triangle(1, -19, -4, 6, 0, -9, 4, 6, 0x0a0a0a);
+
+    // Tail: a Container pivoted at the hindquarters (local -10,4, on the
+    // opposite side from the eyes/collar) so rotating the container swings
+    // the whole tail like a real pivot, not a shape spinning around its own
+    // centroid. Extends toward -x (behind Lexi when facing right; the outer
+    // container's facing-flip scale handles mirroring for free).
+    const tailShape = scene.add.triangle(0, 0, 0, -3, -28, 0, 0, 3, 0x0a0a0a);
+    this.tail = scene.add.container(-10, 3, [tailShape]);
+    this.tail.rotation = this.tailAngle;
+
+    this.visualRoot = scene.add.container(0, 0, [this.tail, capsule, this.earBack, this.earFront, eyeFront, eyeBack, collar]);
     this.add(this.visualRoot);
   }
 
@@ -132,12 +190,30 @@ export class Lexi extends Phaser.GameObjects.Container {
     return this.debouncedGrounded;
   }
 
+  get emotion(): LexiEmotion {
+    return this.computeEmotion();
+  }
+
+  // A brief fast tail-wag burst — SPEC's "wag on token pickup." Called by
+  // ClueSystem, not derived internally, since "a Memory Token was just
+  // collected" isn't state Lexi has any other reason to know about.
+  celebrate(): void {
+    this.celebrateTimerMs = CELEBRATE_MS;
+  }
+
+  // Set by whatever detects the danger (LevelLoader's owl-swoop-proximity
+  // check, currently) — Lexi doesn't know about owls any more than she
+  // knows about ClueSystem's tokens; she just reports the emotion.
+  setThreatened(threatened: boolean): void {
+    this.threatened = threatened;
+  }
+
   getDebugState(): string {
     const vx = Math.round(this.body.velocity.x);
     const vy = Math.round(this.body.velocity.y);
     const holding = this.held ? ` holding=${this.held.kind}` : "";
     const submerged = this.submersionMs > 0 ? ` submersionMs=${Math.round(this.submersionMs)}` : "";
-    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}${submerged}`;
+    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}${submerged} emotion=${this.computeEmotion()}`;
   }
 
   update(deltaSeconds: number, interactables: LexiInteractables = {}): void {
@@ -154,6 +230,7 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.updateJump(grounded);
     this.updateFacing();
     this.updateMovementState(grounded, swimming);
+    this.updateVisualRig(deltaSeconds, grounded);
 
     this.wasGrounded = grounded;
   }
@@ -177,6 +254,15 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.movementState = LexiState.IDLE;
     this.scene.tweens.killTweensOf(this.visualRoot);
     this.visualRoot.setScale(1, 1);
+    this.visualRoot.y = 0;
+    this.threatened = false;
+    this.celebrateTimerMs = 0;
+    this.runCycleMs = 0;
+    this.tailAngle = TAIL_ANGLE_NEUTRAL;
+    this.tail.rotation = this.tailAngle;
+    this.earAngle = EAR_ANGLE_ALERT;
+    this.earFront.rotation = this.earAngle;
+    this.earBack.rotation = this.earAngle;
   }
 
   private updateGrab(deltaSeconds: number, grabCandidates: Grabbable[]): void {
@@ -394,6 +480,60 @@ export class Lexi extends Phaser.GameObjects.Container {
       return LexiState.SNIFF;
     }
     return Math.abs(this.body.velocity.x) > IDLE_SPEED_THRESHOLD ? LexiState.RUN : LexiState.IDLE;
+  }
+
+  private computeEmotion(): LexiEmotion {
+    if (this.celebrateTimerMs > 0) {
+      return "happy";
+    }
+    if (this.threatened || this.submersionMs > SCARED_SUBMERSION_MS) {
+      return "scared";
+    }
+    if (this.isSniffing) {
+      return "curious";
+    }
+    return "neutral";
+  }
+
+  // Tail/ear rotation, run-cycle bob — all pure per-frame computation, no
+  // tweens (see the constructor comment on why). `runCycleMs` free-runs
+  // whenever grounded+running so the wag/bob phase stays continuous rather
+  // than resetting every stride, which would look like a twitch.
+  private updateVisualRig(deltaSeconds: number, grounded: boolean): void {
+    this.celebrateTimerMs = Math.max(0, this.celebrateTimerMs - deltaSeconds * 1000);
+
+    const running = grounded && this.movementState === LexiState.RUN;
+    if (running || this.celebrateTimerMs > 0) {
+      this.runCycleMs += deltaSeconds * 1000;
+    }
+
+    const emotion = this.computeEmotion();
+    const targetTailBase = emotion === "scared" ? TAIL_ANGLE_SCARED : emotion === "curious" ? TAIL_ANGLE_CURIOUS : TAIL_ANGLE_NEUTRAL;
+
+    let targetTail = targetTailBase;
+    if (emotion === "happy") {
+      targetTail = Math.sin((this.runCycleMs / 1000) * TAIL_WAG_HZ_HAPPY * Math.PI * 2) * TAIL_WAG_AMPLITUDE;
+    } else if (running) {
+      targetTail = targetTailBase + Math.sin((this.runCycleMs / 1000) * TAIL_WAG_HZ_RUN * Math.PI * 2) * TAIL_WAG_AMPLITUDE * 0.5;
+    }
+
+    this.tailAngle = moveTowards(this.tailAngle, targetTail, TAIL_FOLLOW_RATE * deltaSeconds);
+    this.tail.rotation = this.tailAngle;
+
+    const targetEar = emotion === "scared" ? EAR_ANGLE_SCARED : EAR_ANGLE_ALERT;
+    this.earAngle = moveTowards(this.earAngle, targetEar, EAR_FOLLOW_RATE * deltaSeconds);
+    this.earFront.rotation = this.earAngle;
+    this.earBack.rotation = this.earAngle;
+
+    // A subtle bob while actually running — gated off during LAND (whose
+    // squash tween owns visualRoot's scale, not position, so no conflict,
+    // but bobbing mid-squash would look like two animations arguing) and
+    // while airborne (JUMP/FALL/SWIM read better with a level silhouette).
+    if (running && this.movementState !== LexiState.LAND) {
+      this.visualRoot.y = -Math.abs(Math.sin((this.runCycleMs / 1000) * RUN_BOB_HZ * Math.PI * 2)) * RUN_BOB_AMPLITUDE;
+    } else if (this.movementState !== LexiState.LAND) {
+      this.visualRoot.y = 0;
+    }
   }
 
   private playLandSquash(): void {
