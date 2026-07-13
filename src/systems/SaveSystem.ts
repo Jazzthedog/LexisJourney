@@ -3,11 +3,12 @@ const STORAGE_KEY = "lexis-journey-save-v1";
 export interface SaveData {
   chapter: string;
   checkpoint: string;
+  lastMap: string;
   tokens: string[];
   hasSeenIntro: boolean;
 }
 
-const EMPTY_SAVE: SaveData = { chapter: "", checkpoint: "", tokens: [], hasSeenIntro: false };
+const EMPTY_SAVE: SaveData = { chapter: "", checkpoint: "", lastMap: "", tokens: [], hasSeenIntro: false };
 
 function loadFromStorage(): SaveData {
   try {
@@ -19,6 +20,7 @@ function loadFromStorage(): SaveData {
     return {
       chapter: typeof parsed.chapter === "string" ? parsed.chapter : "",
       checkpoint: typeof parsed.checkpoint === "string" ? parsed.checkpoint : "",
+      lastMap: typeof parsed.lastMap === "string" ? parsed.lastMap : "",
       tokens: Array.isArray(parsed.tokens) ? parsed.tokens.filter((t): t is string => typeof t === "string") : [],
       hasSeenIntro: parsed.hasSeenIntro === true,
     };
@@ -45,6 +47,14 @@ export class SaveSystem {
 
   get checkpoint(): string {
     return this.data.checkpoint;
+  }
+
+  get lastMap(): string {
+    return this.data.lastMap;
+  }
+
+  get hasSave(): boolean {
+    return this.data.lastMap.length > 0;
   }
 
   get tokenCount(): number {
@@ -75,9 +85,18 @@ export class SaveSystem {
     this.persist();
   }
 
-  setCheckpoint(chapter: string, checkpoint: string): void {
+  setCheckpoint(chapter: string, checkpoint: string, mapKey: string): void {
     this.data.chapter = chapter;
     this.data.checkpoint = checkpoint;
+    this.data.lastMap = mapKey;
+    this.persist();
+  }
+
+  // "New Game" (MenuScene, PROMPTS P5.1) — a full wipe, not just progress:
+  // hasSeenIntro resets too, so a fresh save naturally replays the intro
+  // rather than needing special-case logic to force it.
+  reset(): void {
+    this.data = { ...EMPTY_SAVE, tokens: [] };
     this.persist();
   }
 

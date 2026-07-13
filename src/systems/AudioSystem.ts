@@ -64,6 +64,7 @@ export class AudioSystem {
   private activeBed: ActiveBed | null = null;
   private currentBedKey: string | null = null;
   private activeDrone: ActiveDrone | null = null;
+  private volumeMultiplier: number;
 
   constructor(scene: Phaser.Scene) {
     const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -72,6 +73,7 @@ export class AudioSystem {
     this.masterGain.gain.value = MASTER_GAIN;
     this.masterGain.connect(this.ctx.destination);
     this.noiseBuffer = createNoiseBuffer(this.ctx, BED_NOISE_BUFFER_S);
+    this.volumeMultiplier = 1;
 
     // Autoplay policy: an AudioContext starts (or resumes after a scene
     // restart re-creates it) suspended until a real user gesture. Any key
@@ -85,6 +87,15 @@ export class AudioSystem {
     scene.input.on("pointerdown", resume);
 
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
+  }
+
+  // PROMPTS P5.1's Options volume slider — a multiplier on top of MASTER_GAIN
+  // rather than replacing it, so the existing per-sound peakGain tuning
+  // (bark, footsteps, whistle...) stays balanced relative to itself at any
+  // slider position.
+  setMasterVolume(value: number): void {
+    this.volumeMultiplier = Phaser.Math.Clamp(value, 0, 1);
+    this.masterGain.gain.value = MASTER_GAIN * this.volumeMultiplier;
   }
 
   // Looping ambient bed per level/region, crossfaded rather than cut.

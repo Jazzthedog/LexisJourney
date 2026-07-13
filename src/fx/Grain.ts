@@ -1,13 +1,18 @@
 import Phaser from "phaser";
 
 // Vignette is always on; uGrainEnabled only gates the noise term so the
-// debug G-key toggle (GameScene) affects grain without touching the vignette.
+// debug G-key toggle (GameScene) affects grain without touching the
+// vignette. uHighContrast (PROMPTS P5.1's accessibility option) instead
+// shrinks the vignette's darkening range — 0.35..1.0 becomes 0.7..1.0 — so
+// silhouettes at the frame edges stay readable rather than crushed to near-
+// black, without removing the vignette's shape entirely.
 const fragShader = `
 precision mediump float;
 
 uniform sampler2D uMainSampler;
 uniform float uTime;
 uniform float uGrainEnabled;
+uniform float uHighContrast;
 
 varying vec2 outTexCoord;
 
@@ -20,7 +25,8 @@ void main(void) {
 
   vec2 centered = outTexCoord - 0.5;
   float vignette = smoothstep(0.75, 0.25, length(centered));
-  color.rgb *= mix(0.35, 1.0, vignette);
+  float vignetteFloor = mix(0.35, 0.7, uHighContrast);
+  color.rgb *= mix(vignetteFloor, 1.0, vignette);
 
   float grain = (random(outTexCoord * uTime * 100.0) - 0.5) * 0.12;
   color.rgb += grain * uGrainEnabled;
@@ -31,6 +37,7 @@ void main(void) {
 
 export class GrainPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   private grainEnabled = true;
+  private highContrastEnabled = false;
 
   constructor(game: Phaser.Game) {
     super({
@@ -42,10 +49,23 @@ export class GrainPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipelin
   onPreRender(): void {
     this.set1f("uTime", this.game.loop.time / 1000);
     this.set1f("uGrainEnabled", this.grainEnabled ? 1 : 0);
+    this.set1f("uHighContrast", this.highContrastEnabled ? 1 : 0);
   }
 
   toggleGrain(): boolean {
     this.grainEnabled = !this.grainEnabled;
     return this.grainEnabled;
+  }
+
+  setGrainEnabled(value: boolean): void {
+    this.grainEnabled = value;
+  }
+
+  isGrainEnabled(): boolean {
+    return this.grainEnabled;
+  }
+
+  setHighContrast(value: boolean): void {
+    this.highContrastEnabled = value;
   }
 }

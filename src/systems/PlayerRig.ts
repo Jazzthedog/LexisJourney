@@ -41,5 +41,5 @@ export function createPlayerRig(
     cam.scrollY = expSmooth(cam.scrollY, lexi.y - cam.height / 2, CAMERA_SMOOTH_PER_SEC, dt);
   };
 
-  return { lexi, updatePlayerAndCamera };
+  return { lexi, updatePlayerAndCamera, input };
 }

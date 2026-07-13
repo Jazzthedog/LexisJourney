@@ -1,7 +1,9 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
+import { MenuScene } from "./scenes/MenuScene";
 import { IntroScene } from "./scenes/IntroScene";
 import { GameScene } from "./scenes/GameScene";
+import { PauseScene } from "./scenes/PauseScene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -31,7 +33,7 @@ const config: Phaser.Types.Core.GameConfig = {
   fps: {
     forceSetTimeOut: true,
   },
-  scene: [BootScene, IntroScene, GameScene],
+  scene: [BootScene, MenuScene, IntroScene, GameScene, PauseScene],
 };
 
 new Phaser.Game(config);

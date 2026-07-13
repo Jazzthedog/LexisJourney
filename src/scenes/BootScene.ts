@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import { DEBUG } from "../debug/flag";
-import { SaveSystem } from "../systems/SaveSystem";
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -34,18 +33,15 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     // DEBUG keeps the P0.3 default (GameScene's own test-room fallback) so
     // the fast dev-iteration loop (digit keys -> test rooms) every prior
-    // phase's verify step relies on doesn't gain a 30s cutscene in front of
-    // it. Production follows the real flow: the wordless intro (PROMPTS
-    // P4.2) once, then straight past it on every later boot.
+    // phase's verify step relies on doesn't gain a menu/cutscene in front of
+    // it. Production follows the real flow: the title screen (PROMPTS
+    // P5.1) — Continue/New Game there own the intro-vs-straight-to-Chapter-1
+    // decision (MenuScene.hasSave), not BootScene.
     if (DEBUG) {
       this.scene.start("Game");
       return;
     }
 
-    if (new SaveSystem().hasSeenIntro) {
-      this.scene.start("Game", { map: "ch1_01_reststop" });
-    } else {
-      this.scene.start("Intro");
-    }
+    this.scene.start("Menu");
   }
 }

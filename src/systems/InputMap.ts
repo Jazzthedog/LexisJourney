@@ -30,6 +30,17 @@ export class InputMap {
   private digJustPressed = false;
   private wasDigDown = false;
 
+  // Touch input (PROMPTS P5.1's TouchControls) — set by whatever's driving
+  // it each frame, blended into the same isDown/moveX() reads as keyboard
+  // and gamepad rather than a separate parallel path, so gameplay code
+  // never has to know which input source is active.
+  private virtualMoveX = 0;
+  private virtualJumpDown = false;
+  private virtualGrabDown = false;
+  private virtualBarkDown = false;
+  private virtualSniffDown = false;
+  private virtualDigDown = false;
+
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     const keyboard = scene.input.keyboard!;
@@ -51,23 +62,51 @@ export class InputMap {
     const padDigDown = !!(pad && pad.down);
 
     const wasJumpDown = this.jumpDown;
-    this.jumpDown = this.cursors.space.isDown || this.cursors.up.isDown || this.keyW.isDown || padJumpDown;
+    this.jumpDown = this.cursors.space.isDown || this.cursors.up.isDown || this.keyW.isDown || padJumpDown || this.virtualJumpDown;
     this.jumpJustPressed = this.jumpDown && !wasJumpDown;
     this.jumpJustReleased = !this.jumpDown && wasJumpDown;
 
     const wasGrabDown = this.grabDown;
-    this.grabDown = this.keyE.isDown || (this.cursors.down.isDown && (this.cursors.left.isDown || this.cursors.right.isDown)) || padGrabDown;
+    this.grabDown =
+      this.keyE.isDown || (this.cursors.down.isDown && (this.cursors.left.isDown || this.cursors.right.isDown)) || padGrabDown || this.virtualGrabDown;
     this.grabJustPressed = this.grabDown && !wasGrabDown;
 
-    const barkDown = this.keyQ.isDown || padBarkDown;
+    const barkDown = this.keyQ.isDown || padBarkDown || this.virtualBarkDown;
     this.barkJustPressed = barkDown && !this.wasBarkDown;
     this.wasBarkDown = barkDown;
 
-    this.sniffDown = this.cursors.shift.isDown || padSniffDown;
+    this.sniffDown = this.cursors.shift.isDown || padSniffDown || this.virtualSniffDown;
 
-    const digDown = this.keyS.isDown || padDigDown;
+    const digDown = this.keyS.isDown || padDigDown || this.virtualDigDown;
     this.digJustPressed = digDown && !this.wasDigDown;
     this.wasDigDown = digDown;
+  }
+
+  // Called by TouchControls each frame while a virtual button/zone is held —
+  // "just pressed" edges for these come free from the same isDown blending
+  // in update() above, so TouchControls never needs its own edge-detection.
+  setVirtualJump(down: boolean): void {
+    this.virtualJumpDown = down;
+  }
+
+  setVirtualGrab(down: boolean): void {
+    this.virtualGrabDown = down;
+  }
+
+  setVirtualBark(down: boolean): void {
+    this.virtualBarkDown = down;
+  }
+
+  setVirtualSniff(down: boolean): void {
+    this.virtualSniffDown = down;
+  }
+
+  setVirtualDig(down: boolean): void {
+    this.virtualDigDown = down;
+  }
+
+  setVirtualMoveX(x: number): void {
+    this.virtualMoveX = Phaser.Math.Clamp(x, -1, 1);
   }
 
   moveX(): number {
@@ -80,6 +119,10 @@ export class InputMap {
       if (Math.abs(stickX) > STICK_DEADZONE) {
         x = Phaser.Math.Clamp(stickX, -1, 1);
       }
+    }
+
+    if (x === 0 && this.virtualMoveX !== 0) {
+      x = this.virtualMoveX;
     }
 
     return x;

@@ -3,6 +3,7 @@ import { createPlayerRig } from "../systems/PlayerRig";
 import { PuzzleRegistry } from "../systems/PuzzleWiring";
 import { CheckpointSystem, Snapshottable } from "../systems/CheckpointSystem";
 import { SaveSystem } from "../systems/SaveSystem";
+import { SettingsSystem } from "../systems/SettingsSystem";
 import { ClueSystem } from "../systems/ClueSystem";
 import { AudioSystem } from "../systems/AudioSystem";
 import { Crate } from "../entities/props/Crate";
@@ -26,6 +27,7 @@ import { FogLayers } from "../fx/Fog";
 import { ParallaxLayers } from "../fx/Parallax";
 import type { Grabbable } from "../entities/props/Grabbable";
 import type { SoundReactive } from "../entities/SoundReactive";
+import type { InputMap } from "../systems/InputMap";
 
 const DECORATION_VARIANTS: DecorationVariant[] = ["tree", "rock", "fencePost", "bush"];
 function decorationVariantOf(value: unknown): DecorationVariant {
@@ -45,6 +47,24 @@ const SUBMERSION_LIMIT_MS = 3500;
 
 export interface LevelHandle {
   update: (dt: number) => void;
+  // PROMPTS P5.1's pause-menu "Restart at Checkpoint" — the same fail path
+  // every hazard already uses, just triggered by the player directly instead
+  // of a swoop/current/timer.
+  restartCheckpoint: () => void;
+  // PROMPTS P5.1's Options volume slider, applied live to whatever level is
+  // currently running (GameScene forwards it from PauseScene's OptionsPanel).
+  setMasterVolume: (value: number) => void;
+  // PROMPTS P5.1's high-contrast accessibility toggle — drops the per-map
+  // ambient darkness overlay (fx/Palette.ts) to 0 (GrainPipeline's vignette
+  // easing is handled separately, by whoever owns the pipeline).
+  setHighContrast: (value: boolean) => void;
+  // PROMPTS P5.1's TouchControls needs Lexi's own InputMap to feed virtual
+  // input into — exposed here rather than having GameScene reach into
+  // Lexi's private fields.
+  inputMap: InputMap;
+  // PROMPTS P5.1's performance auto-degrade (a sustained low framerate
+  // disables fog, same trigger that disables grain via GrainPipeline).
+  setFogEnabled: (value: boolean) => void;
 }
 
 export function preloadLevel(scene: Phaser.Scene, mapKey: string): void {
@@ -145,11 +165,12 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
   // already owns the vignette) — depth 45 sits above gameplay/decorations
   // (0) but below the fog bands (50+), so fog still reads as glowing faintly
   // even through the darkened scene.
+  const settings = new SettingsSystem();
   const palette = getPalette(mapKey);
   scene.cameras.main.setBackgroundColor(palette.backgroundColor);
   const { width: viewWidth, height: viewHeight } = scene.scale;
-  scene.add
-    .rectangle(viewWidth / 2, viewHeight / 2, viewWidth, viewHeight, 0x000000, palette.ambientDarkness)
+  const ambientOverlay = scene.add
+    .rectangle(viewWidth / 2, viewHeight / 2, viewWidth, viewHeight, 0x000000, settings.highContrast ? 0 : palette.ambientDarkness)
     .setScrollFactor(0)
     .setDepth(45);
   const fog = new FogLayers(scene, viewWidth, viewHeight, palette.fogDensity);
@@ -309,7 +330,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
           triggerZones.push(
             new TriggerZone(scene, center.x, center.y, width, height, () => {
               checkpointSystem.checkpoint();
-              saveSystem.setCheckpoint(chapter, checkpointId);
+              saveSystem.setCheckpoint(chapter, checkpointId, mapKey);
             }),
           );
           break;
@@ -341,7 +362,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
     }
   }
 
-  const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, spawnX, spawnY, {
+  const { lexi, updatePlayerAndCamera, input } = createPlayerRig(scene, spawnX, spawnY, {
     grabCandidates,
     soundReactive,
     digSpots,
@@ -371,6 +392,7 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
 
   const scentSystem = scentPaths.length > 0 ? new ScentSystem(scene, scentPaths, saveSystem.tokenCount) : undefined;
   const audioSystem = new AudioSystem(scene);
+  audioSystem.setMasterVolume(settings.masterVolume);
   audioSystem.setBed("forest");
   lexi.on("bark", () => audioSystem.playBark());
 
@@ -433,5 +455,10 @@ export function buildLevel(scene: Phaser.Scene, mapKey: string): LevelHandle {
         }
       }
     },
+    restartCheckpoint: () => checkpointSystem.fail(),
+    setMasterVolume: (value: number) => audioSystem.setMasterVolume(value),
+    setHighContrast: (value: boolean) => ambientOverlay.setAlpha(value ? 0 : palette.ambientDarkness),
+    inputMap: input,
+    setFogEnabled: (value: boolean) => fog.setEnabled(value),
   };
 }

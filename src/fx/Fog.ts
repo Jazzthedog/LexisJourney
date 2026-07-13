@@ -80,4 +80,14 @@ export class FogLayers {
       layer.tilePositionX += this.driftSpeeds[i] * deltaSeconds;
     });
   }
+
+  // PROMPTS P5.1's "grain/fog auto-degrade if not [holding a stable
+  // framerate]" — a hard on/off rather than a subtler alpha fade, since the
+  // actual performance win is skipping the draw calls entirely, not just
+  // making them fainter.
+  setEnabled(enabled: boolean): void {
+    for (const layer of this.layers) {
+      layer.setVisible(enabled);
+    }
+  }
 }

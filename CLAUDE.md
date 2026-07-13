@@ -316,3 +316,18 @@ vignette and fog rather than replacing them, and the original values crushed eve
 it. **When tuning a new monochrome/silhouette visual layer, screenshot the actual rendered
 frame before deciding the color values are right** — hex math on paper doesn't reveal that two
 "different" near-black fills are visually indistinguishable once composited.
+
+### `Camera.fade()` doesn't complete instantly either — same family as the tween-desync gotcha, different subsystem
+
+`CheckpointSystem.fail()` (used by every hazard, and now P5.1's pause-menu "Restart at
+Checkpoint") gates the actual `restoreSnapshot()` call behind `cam.fade(FADE_MS, ...)`'s
+progress callback — the snapshot only applies once the fade reaches `progress >= 1`, 350ms
+later. Checking Lexi's position immediately after calling `fail()` (even a few `step()` calls
+later) can read the *pre-restore* position with no error, looking exactly like "restart didn't
+work" — until stepping ~60 more frames (past 350ms) shows the real result. This is the same
+underlying issue as the documented `scene.tweens` desync (a Phaser effects system with its own
+timing that a manually-stepped clock doesn't automatically satisfy just by ticking a few
+frames), but `Camera.fade()` is a different subsystem than `scene.tweens` — don't assume the
+existing tween gotcha "covers" every Phaser effect; camera fades, camera shake, and any other
+`Camera.*` effect need the same "step well past its stated duration, or wait for its own
+callback" treatment.

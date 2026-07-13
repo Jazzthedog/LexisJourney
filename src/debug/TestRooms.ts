@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { FogLayers } from "../fx/Fog";
 import { createPlayerRig } from "../systems/PlayerRig";
+import type { InputMap } from "../systems/InputMap";
 import type { Grabbable } from "../entities/props/Grabbable";
 import { Crate } from "../entities/props/Crate";
 import { Ball } from "../entities/props/Ball";
@@ -30,6 +31,15 @@ import { FootstepCadence } from "../systems/FootstepCadence";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
+  // Optional here (test rooms don't implement them) but required on the
+  // real LevelHandle (LevelLoader.ts) — GameScene talks to both through
+  // this shared type, so PauseScene's actions no-op harmlessly in a debug
+  // test room instead of needing a type-narrowing branch.
+  restartCheckpoint?: () => void;
+  setMasterVolume?: (value: number) => void;
+  setHighContrast?: (value: boolean) => void;
+  inputMap?: InputMap;
+  setFogEnabled?: (value: boolean) => void;
 }
 
 export interface TestRoom {
