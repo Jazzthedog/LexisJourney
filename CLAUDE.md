@@ -180,3 +180,38 @@ first-frame `elapsedMs` jump) until re-run with the corrected loop condition sho
 timing was correct all along. When a step-loop's exit condition is a *position* rather than
 the *event* you actually care about, and the code under test can freeze that position, the
 loop stops being a reliable proxy — prefer breaking on the actual state change.
+
+### Verifying Web Audio (P3.3): `AudioContext.currentTime` never advances without a real trusted user gesture, and neither synthetic keys nor automation-driven clicks count
+
+`AudioSystem`'s `ctx` starts (and stays) `"suspended"` in this environment — confirmed both a
+dispatched `KeyboardEvent` and a real `computer` tool click land on the page without
+triggering Chrome's autoplay unlock. While suspended, `ctx.currentTime` is frozen at `0`, so
+**any** scheduled Web Audio automation (`gain.linearRampToValueAtTime`, `setTargetAtTime`,
+`osc.start(delay)`, the whole bed-crossfade and positional-drone gain curve) never progresses
+— stepping the game loop doesn't help, because that's a separate clock from the audio
+context's own. This isn't a product bug and there's no code fix: it's the correct, intended
+browser security behavior, and a real player's first keypress/click unlocks it normally.
+**The workaround for verification:** don't rely on the AudioContext clock at all. Call the
+system's own gain/pan math directly as a pure function (`audioSystem['computePositional'](...)`
+via bracket access) and check the returned numbers against hand-derived expected values;
+separately confirm node-graph *construction* parameters (`filter.frequency.value`,
+`filter.type` — these are direct property assignments, not scheduled automation, so they
+apply immediately even on a suspended context) by monkey-patching `ctx.createBiquadFilter`/
+`createOscillator` to record what each call configures. Both together fully verify the
+synthesis logic without ever needing the context to actually produce sound.
+
+### Late in a very long session, even a multi-second real `wait()` may not complete a tween
+
+A landing-squash tween (`LAND_SQUASH_MS` = 90ms) stayed stuck mid-transition through a 4-second
+real `wait()` — far longer than should ever be needed per the existing tween-desync gotcha
+above. Likely cause: Chrome's background-tab timer throttling escalating over a long-lived
+automation session, starving `forceSetTimeOut`'s own `setTimeout` chain of real ticks even
+during a `wait()`. Don't assume "the existing tween gotcha's fix (a real wait) will always be
+enough" — if a tween-gated state (like `Lexi.movementState` easing out of `LAND`) still won't
+resolve after a few seconds of real waiting, stop trying to observe it live and instead verify
+the *inputs* to that state machine directly (raw `body.velocity`/`body.blocked.down`, which
+track `step(t)` accurately per the original gotcha) or test the dependent logic
+(`FootstepCadence`, surface-zone lookup, etc.) in isolation from the stuck display label. This
+cost real time on P3.3's footstep verification before landing on: test each contributing piece
+precisely instead of chasing one end-to-end live observation that this specific session's
+tab state couldn't produce.

@@ -25,6 +25,8 @@ import { StrayDog } from "../entities/creatures/StrayDog";
 import { MemoryToken } from "../entities/props/MemoryToken";
 import { ClueSystem } from "../systems/ClueSystem";
 import { SaveSystem } from "../systems/SaveSystem";
+import { AudioSystem, SurfaceType } from "../systems/AudioSystem";
+import { FootstepCadence } from "../systems/FootstepCadence";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -143,6 +145,25 @@ const MOVEMENT_PLATFORMS: PlatformSpec[] = [
 const MOVEMENT_WORLD_WIDTH = 3200;
 const MOVEMENT_WORLD_HEIGHT = 720;
 
+// P3.3: the long run (built for top-speed testing anyway) doubles as the
+// three-surface footstep demo — grass the rest of the way, wood then metal
+// across the straightaway.
+const MOVEMENT_SURFACE_ZONES: { xEnd: number; surface: SurfaceType }[] = [
+  { xEnd: 1650, surface: "grass" },
+  { xEnd: 1900, surface: "wood" },
+  { xEnd: 2100, surface: "metal" },
+  { xEnd: MOVEMENT_WORLD_WIDTH, surface: "grass" },
+];
+
+function movementSurfaceAt(x: number): SurfaceType {
+  for (const zone of MOVEMENT_SURFACE_ZONES) {
+    if (x < zone.xEnd) {
+      return zone.surface;
+    }
+  }
+  return "grass";
+}
+
 function buildPlatforms(scene: Phaser.Scene, specs: PlatformSpec[]): Phaser.Physics.Arcade.StaticGroup {
   const platforms = scene.physics.add.staticGroup();
   for (const spec of specs) {
@@ -165,7 +186,19 @@ const movementRoom: TestRoom = {
     const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600);
     scene.physics.add.collider(lexi, platforms);
 
-    return { update: updatePlayerAndCamera };
+    const audioSystem = new AudioSystem(scene);
+    audioSystem.setBed("forest");
+    const footsteps = new FootstepCadence();
+    lexi.on("bark", () => audioSystem.playBark());
+
+    return {
+      update: (dt: number) => {
+        updatePlayerAndCamera(dt);
+        if (footsteps.update(lexi.x, lexi.isGrounded, lexi.isRunning)) {
+          audioSystem.playFootstep(movementSurfaceAt(lexi.x));
+        }
+      },
+    };
   },
 };
 
@@ -257,7 +290,9 @@ const sensesRoom: TestRoom = {
 
     const saveSystem = new SaveSystem();
     const scentSystem = new ScentSystem(scene, [SENSES_SCENT_PATH], saveSystem.tokenCount);
-    const clueSystem = new ClueSystem(scene, saveSystem, scentSystem);
+    const audioSystem = new AudioSystem(scene);
+    audioSystem.setBed("forest");
+    const clueSystem = new ClueSystem(scene, saveSystem, scentSystem, audioSystem);
 
     const token = new MemoryToken(scene, 950, 650, SENSES_TOKEN_ID);
     clueSystem.register(token);
@@ -273,6 +308,7 @@ const sensesRoom: TestRoom = {
     });
     scene.physics.add.collider(lexi, platforms);
     scene.physics.add.collider(lexi, fence);
+    lexi.on("bark", () => audioSystem.playBark());
 
     return {
       update: (dt: number) => {
@@ -457,6 +493,16 @@ const riverCrossingRoom: TestRoom = {
 
     checkpointSystem.checkpoint(); // spawn itself counts as checkpoint zero
 
+    // P3.3 verify: "closing your eyes in the river room still tells you
+    // where the water is" — a persistent positional drone anchored at the
+    // water's surface (not its deep center) means its volume/pan alone
+    // locate the river as Lexi moves, on top of the bed crossfading to a
+    // brighter/louder "river" mix while she's actually in it.
+    const audioSystem = new AudioSystem(scene);
+    audioSystem.setBed("forest");
+    audioSystem.setPositionalDrone("river", 1000, 680);
+    let wasSwimming = false;
+
     return {
       update: (dt: number) => {
         updatePlayerAndCamera(dt);
@@ -468,6 +514,14 @@ const riverCrossingRoom: TestRoom = {
         checkpointB.update(lexi.body);
         checkpointC.update(lexi.body);
         failPit.update(lexi.body);
+
+        audioSystem.updateDrone(lexi.x, lexi.y);
+        audioSystem.setBed(waterZone.contains(lexi.x, lexi.y) ? "river" : "forest");
+        const swimming = !lexi.isGrounded && waterZone.contains(lexi.x, lexi.y);
+        if (swimming && !wasSwimming) {
+          audioSystem.playOneShot("splash", lexi.x, lexi.y, lexi.x, lexi.y);
+        }
+        wasSwimming = swimming;
 
         if (lexi.waterSubmersionMs > SUBMERSION_LIMIT_MS) {
           checkpointSystem.fail();

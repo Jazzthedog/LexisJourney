@@ -26,11 +26,9 @@ function buildGhostDog(scene: Phaser.Scene, x: number, y: number): Phaser.GameOb
 
 // A wordless "memory echo": a static ghostly-silhouette tableau (SPEC §2 —
 // triggered by collecting a family clue) held for ~4s with fog + grain,
-// then fades back to gameplay. The 4-note whistle motif SPEC also calls for
-// here is P3.3 scope — AudioSystem doesn't exist yet, so this is
-// deliberately silent for now, the same call as WindZone's deferred audio
-// swell cue in P2.2. `MemoryEchoVignette` only owns the visual sequence;
-// pausing gameplay while it plays is the caller's job (see ClueSystem).
+// then fades back to gameplay. `MemoryEchoVignette` only owns the visual
+// sequence — pausing gameplay and playing the 4-note whistle motif (P3.3)
+// alongside it are the caller's job (see ClueSystem).
 export class MemoryEchoVignette {
   private readonly container: Phaser.GameObjects.Container;
   private readonly fogStreaks: Phaser.GameObjects.Rectangle[];

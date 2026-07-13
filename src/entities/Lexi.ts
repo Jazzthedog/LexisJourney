@@ -124,6 +124,14 @@ export class Lexi extends Phaser.GameObjects.Container {
     return this.submersionMs;
   }
 
+  get isRunning(): boolean {
+    return this.movementState === LexiState.RUN;
+  }
+
+  get isGrounded(): boolean {
+    return this.debouncedGrounded;
+  }
+
   getDebugState(): string {
     const vx = Math.round(this.body.velocity.x);
     const vy = Math.round(this.body.velocity.y);
@@ -196,6 +204,7 @@ export class Lexi extends Phaser.GameObjects.Container {
 
     this.barkTimerMs = BARK_STATE_MS;
     this.playBarkAnimation();
+    this.emit("bark"); // AudioSystem (P3.3) or anything else listens externally; Lexi doesn't know about audio
 
     for (const target of soundReactive) {
       const dist = Phaser.Math.Distance.Between(this.x, this.y, target.gameObject.x, target.gameObject.y);
