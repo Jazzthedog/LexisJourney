@@ -155,3 +155,28 @@ loaded `Phaser.Types.Tilemaps.TiledObject` is still that array, not a `{name: va
 `LevelLoader.ts`'s `propsOf()` helper does the array-to-object conversion; don't assume a
 future Phaser version or a different loader path hands you an already-flattened object
 without checking `ParseObject.js` again.
+
+### "Pause gameplay" must call `scene.physics.pause()` — skipping your own update loop isn't enough
+
+P3.2's memory-echo vignette needs to genuinely freeze the world while it plays. The first
+attempt just made the room's own `update()` callback early-return while `clueSystem.isPaused`
+— but Arcade Physics integrates gravity and existing velocity **every** step regardless of
+whether anything calls `lexi.update()`. A token grabbed mid-run kept sliding under her last
+velocity for the whole vignette, because skipping your own per-frame wrapper doesn't stop
+Phaser's own automatic physics-world step, which runs independently. The fix:
+`scene.physics.pause()` when the freeze starts, `scene.physics.resume()` when it ends —
+`ClueSystem` owns this directly rather than trusting every room that uses it to get the
+early-return right. Verified by holding a movement key through the entire pause and
+confirming Lexi's x is bit-for-bit identical before and after (not just "close enough").
+
+### Verifying timed sequences (vignettes, cooldowns): a step-loop's exit condition must track the *real* stop signal, not a proxy that stops changing once paused
+
+Chased a false alarm here: a `for` loop stepping frames "until Lexi's x reaches N" kept
+running its full iteration budget (silently burning ~3s of simulated time) because once
+`physics.pause()` freezes her position, `x < N` stays true forever — the loop never learns
+the walk is over. The fix was trivial (also break on the actual event, e.g.
+`!token.isCollected`), but the symptom looked exactly like a real vignette-timing bug (a huge
+first-frame `elapsedMs` jump) until re-run with the corrected loop condition showed the
+timing was correct all along. When a step-loop's exit condition is a *position* rather than
+the *event* you actually care about, and the code under test can freeze that position, the
+loop stops being a reliable proxy — prefer breaking on the actual state change.

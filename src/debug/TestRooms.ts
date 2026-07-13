@@ -22,6 +22,9 @@ import { Branch } from "../entities/props/Branch";
 import { Owl, OWL_CATCH_RADIUS } from "../entities/creatures/Owl";
 import { GuardDog, GUARD_DOG_BITE_RADIUS } from "../entities/creatures/GuardDog";
 import { StrayDog } from "../entities/creatures/StrayDog";
+import { MemoryToken } from "../entities/props/MemoryToken";
+import { ClueSystem } from "../systems/ClueSystem";
+import { SaveSystem } from "../systems/SaveSystem";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -204,17 +207,21 @@ const grabRoom: TestRoom = {
   },
 };
 
-// A crow to bark off, a scent trail leading to a buried ball, and a fence
+// A crow to bark off, a scent trail leading to a buried ball, a fence
 // (too tall to jump — genuinely requires digging under, not just walking
-// around) blocking the way onward.
-const SENSES_PLATFORMS: PlatformSpec[] = [{ x: 450, y: 700, w: 900, h: 40 }];
-const SENSES_WORLD_WIDTH = 1000;
+// around) blocking the way onward, and — past the fence — a Memory Token
+// (P3.2) proving collection, save persistence, and the permanent
+// ScentSystem buff all work together in the same room the scent trail
+// already lives in.
+const SENSES_PLATFORMS: PlatformSpec[] = [{ x: 575, y: 700, w: 1150, h: 40 }];
+const SENSES_WORLD_WIDTH = 1200;
 const SENSES_WORLD_HEIGHT = 720;
 const SENSES_SCENT_PATH: ScentPoint[] = [
   { x: 80, y: 660 },
   { x: 250, y: 662 },
   { x: 450, y: 665 },
 ];
+const SENSES_TOKEN_ID = "ch1_senses_test_token";
 
 const sensesRoom: TestRoom = {
   key: "6",
@@ -248,7 +255,12 @@ const sensesRoom: TestRoom = {
       (fence.body as Phaser.Physics.Arcade.StaticBody).enable = false;
     });
 
-    const scentSystem = new ScentSystem(scene, [SENSES_SCENT_PATH]);
+    const saveSystem = new SaveSystem();
+    const scentSystem = new ScentSystem(scene, [SENSES_SCENT_PATH], saveSystem.tokenCount);
+    const clueSystem = new ClueSystem(scene, saveSystem, scentSystem);
+
+    const token = new MemoryToken(scene, 950, 650, SENSES_TOKEN_ID);
+    clueSystem.register(token);
 
     const grabCandidates: Grabbable[] = [ball];
     const soundReactive = [crow];
@@ -264,6 +276,10 @@ const sensesRoom: TestRoom = {
 
     return {
       update: (dt: number) => {
+        clueSystem.update(dt, lexi.x, lexi.y);
+        if (clueSystem.isPaused) {
+          return; // memory-echo vignette playing — the world holds still
+        }
         updatePlayerAndCamera(dt);
         crow.update(dt);
         scentSystem.update(dt, lexi.isSniffing);
