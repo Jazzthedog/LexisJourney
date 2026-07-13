@@ -3,6 +3,8 @@ import { InputMap } from "../systems/InputMap";
 import type { Grabbable } from "./props/Grabbable";
 import type { SoundReactive } from "./SoundReactive";
 import type { DigSpot } from "./props/DigSpot";
+import type { WaterZone } from "./props/WaterZone";
+import type { WindZone } from "./props/WindZone";
 
 export enum LexiState {
   IDLE = "IDLE",
@@ -14,12 +16,20 @@ export enum LexiState {
   BARK = "BARK",
   SNIFF = "SNIFF",
   DIG = "DIG",
+  SWIM = "SWIM",
 }
 
 export interface LexiInteractables {
   grabCandidates?: Grabbable[];
   soundReactive?: SoundReactive[];
   digSpots?: DigSpot[];
+  waterZones?: WaterZone[];
+  windZones?: WindZone[];
+}
+
+export interface LexiSnapshot {
+  x: number;
+  y: number;
 }
 
 // Tuning constants — this is the "feel" surface for P1.1. Iterate on these
@@ -49,6 +59,9 @@ const SNIFF_SPEED_MULT = 0.5;
 const DIG_RANGE = 50; // px — how close a DigSpot needs to be to dig it
 const DIG_STATE_MS = 500;
 
+const WATER_SWIM_SPEED_MULT = 0.5;
+const WATER_MAX_SINK_SPEED = 60; // px/s cap on downward speed while swimming — buoyant, not falling
+
 const BODY_WIDTH = 26;
 const BODY_HEIGHT = 46;
 
@@ -74,6 +87,9 @@ export class Lexi extends Phaser.GameObjects.Container {
   private held: Grabbable | null = null;
   private barkTimerMs = 0;
   private digTimerMs = 0;
+  private submersionMs = 0;
+  private activeCurrentVx = 0;
+  private activeGustVx = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, inputMap: InputMap) {
     super(scene, x, y);
@@ -104,27 +120,55 @@ export class Lexi extends Phaser.GameObjects.Container {
     return this.inputMap.isSniffDown;
   }
 
+  get waterSubmersionMs(): number {
+    return this.submersionMs;
+  }
+
   getDebugState(): string {
     const vx = Math.round(this.body.velocity.x);
     const vy = Math.round(this.body.velocity.y);
     const holding = this.held ? ` holding=${this.held.kind}` : "";
-    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}`;
+    const submerged = this.submersionMs > 0 ? ` submersionMs=${Math.round(this.submersionMs)}` : "";
+    return `${this.movementState} facing=${this.facing > 0 ? "R" : "L"} vx=${vx} vy=${vy} grounded=${this.debouncedGrounded}${holding}${submerged}`;
   }
 
   update(deltaSeconds: number, interactables: LexiInteractables = {}): void {
     const grounded = this.computeDebouncedGrounded();
     this.debouncedGrounded = grounded;
 
+    const swimming = this.updateWater(deltaSeconds, grounded, interactables.waterZones ?? []);
+    this.updateWind(interactables.windZones ?? []);
     this.updateGrab(deltaSeconds, interactables.grabCandidates ?? []);
     this.updateBark(deltaSeconds, interactables.soundReactive ?? []);
     this.updateDig(deltaSeconds, grounded, interactables.digSpots ?? []);
     this.updateTimers(deltaSeconds, grounded);
-    this.updateHorizontal(deltaSeconds, grounded);
+    this.updateHorizontal(deltaSeconds, grounded, swimming);
     this.updateJump(grounded);
     this.updateFacing();
-    this.updateMovementState(grounded);
+    this.updateMovementState(grounded, swimming);
 
     this.wasGrounded = grounded;
+  }
+
+  captureSnapshot(): LexiSnapshot {
+    return { x: this.x, y: this.y };
+  }
+
+  restoreSnapshot(snapshot: LexiSnapshot): void {
+    this.body.reset(snapshot.x, snapshot.y);
+    this.body.velocity.set(0, 0);
+    this.coyoteTimerMs = 0;
+    this.jumpBufferTimerMs = 0;
+    this.jumpCutApplied = false;
+    this.wasGrounded = false;
+    this.ungroundedStreak = 0;
+    this.debouncedGrounded = false;
+    this.submersionMs = 0;
+    this.held?.onRelease(this);
+    this.held = null;
+    this.movementState = LexiState.IDLE;
+    this.scene.tweens.killTweensOf(this.visualRoot);
+    this.visualRoot.setScale(1, 1);
   }
 
   private updateGrab(deltaSeconds: number, grabCandidates: Grabbable[]): void {
@@ -176,6 +220,29 @@ export class Lexi extends Phaser.GameObjects.Container {
     }
   }
 
+  private updateWater(deltaSeconds: number, grounded: boolean, waterZones: WaterZone[]): boolean {
+    const zone = waterZones.find((z) => z.contains(this.x, this.y));
+    const swimming = !!zone && !grounded;
+
+    if (swimming) {
+      this.submersionMs += deltaSeconds * 1000;
+      this.activeCurrentVx = zone!.currentVx;
+      if (this.body.velocity.y > WATER_MAX_SINK_SPEED) {
+        this.body.velocity.y = WATER_MAX_SINK_SPEED;
+      }
+    } else {
+      this.submersionMs = 0;
+      this.activeCurrentVx = 0;
+    }
+
+    return swimming;
+  }
+
+  private updateWind(windZones: WindZone[]): void {
+    const zone = windZones.find((z) => z.contains(this.x, this.y));
+    this.activeGustVx = zone?.currentForceX ?? 0;
+  }
+
   private findNearest<T>(
     candidates: T[],
     range: number,
@@ -212,11 +279,21 @@ export class Lexi extends Phaser.GameObjects.Container {
     }
   }
 
-  private updateHorizontal(deltaSeconds: number, grounded: boolean): void {
+  private updateHorizontal(deltaSeconds: number, grounded: boolean, swimming: boolean): void {
     const axis = this.inputMap.moveX();
     const weightMult = this.held?.speedMultiplier ?? 1;
     const sniffMult = this.isSniffing ? SNIFF_SPEED_MULT : 1;
-    const targetSpeed = axis * MOVE_SPEED * weightMult * sniffMult;
+    const swimMult = swimming ? WATER_SWIM_SPEED_MULT : 1;
+    // Current and gust are folded into the target rather than added
+    // post-hoc: this method already overwrites velocity.x wholesale via
+    // moveTowards, so a same-frame-earlier "+=" from a separate step would
+    // just get clobbered here (and a post-hoc "+=" after this method would
+    // get erased right back on the very next frame, since moveTowards snaps
+    // fully to target whenever the gap is smaller than one frame's max
+    // step). Folding both into the target itself is the only place either
+    // has a lasting effect.
+    const currentOffset = swimming ? this.activeCurrentVx : 0;
+    const targetSpeed = axis * MOVE_SPEED * weightMult * sniffMult * swimMult + currentOffset + this.activeGustVx;
     const control = grounded ? 1 : AIR_CONTROL_MULT;
     const rate = (Math.abs(targetSpeed) > Math.abs(this.body.velocity.x) ? ACCELERATION : DECELERATION) * control;
 
@@ -255,7 +332,7 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.setScale(this.facing, 1);
   }
 
-  private updateMovementState(grounded: boolean): void {
+  private updateMovementState(grounded: boolean, swimming: boolean): void {
     const justLanded = grounded && !this.wasGrounded;
 
     if (justLanded) {
@@ -269,17 +346,24 @@ export class Lexi extends Phaser.GameObjects.Container {
       // onComplete — unless Lexi leaves the ground again first (a jump
       // buffered right at landing), in which case that takes priority.
       if (!grounded) {
-        this.movementState = this.body.velocity.y < 0 ? LexiState.JUMP : LexiState.FALL;
+        this.movementState = this.airborneLabel(swimming);
       }
       return;
     }
 
     if (!grounded) {
-      this.movementState = this.body.velocity.y < 0 ? LexiState.JUMP : LexiState.FALL;
+      this.movementState = this.airborneLabel(swimming);
       return;
     }
 
     this.movementState = this.groundedLabel();
+  }
+
+  private airborneLabel(swimming: boolean): LexiState {
+    if (swimming) {
+      return LexiState.SWIM;
+    }
+    return this.body.velocity.y < 0 ? LexiState.JUMP : LexiState.FALL;
   }
 
   // Priority among the "grounded, otherwise idle/running" modifier states:

@@ -14,6 +14,11 @@ import { Gate } from "../entities/props/Gate";
 import { PressurePlate } from "../entities/props/PressurePlate";
 import { Seesaw, SeesawWeight } from "../entities/props/Seesaw";
 import { RopeHandle, Counterweight } from "../entities/props/Pulley";
+import { CheckpointSystem, Snapshottable } from "../systems/CheckpointSystem";
+import { TriggerZone } from "../entities/props/TriggerZone";
+import { WaterZone } from "../entities/props/WaterZone";
+import { FloatingLog } from "../entities/props/FloatingLog";
+import { WindZone } from "../entities/props/WindZone";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -383,6 +388,111 @@ const mechanicalPropsRoom: TestRoom = {
   },
 };
 
+// A checkpointed river crossing: start -> checkpoint -> river (floating
+// logs against a current, drowning if you linger in open water) ->
+// checkpoint -> a gap too wide to clear without a timed wind gust -> a fail
+// pit for a mistimed jump -> finish. A crate near the start proves
+// CheckpointSystem restores prop positions, not just Lexi's.
+// Deliberately no riverbed floor: standing on the bottom of a river while
+// still submerged shouldn't cancel the drowning timer the way standing on a
+// log or the bank does. World bounds (collideWorldBounds) is the only
+// backstop, and it's far enough down that the submersion timer always fires
+// first — see SUBMERSION_LIMIT_MS below.
+const RIVER_PLATFORMS: PlatformSpec[] = [
+  { x: 300, y: 700, w: 600, h: 40 }, // start ground, before the river
+  { x: 1550, y: 700, w: 300, h: 40 }, // far bank, between the river and the wind gap
+  { x: 2060, y: 700, w: 300, h: 40 }, // finish ground, past the wind gap (gap: 1700-1910)
+];
+const RIVER_WORLD_WIDTH = 2600;
+const RIVER_WORLD_HEIGHT = 1000;
+const SUBMERSION_LIMIT_MS = 3500;
+
+const riverCrossingRoom: TestRoom = {
+  key: "8",
+  name: "River Crossing",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x101418);
+    scene.physics.world.setBounds(0, 0, RIVER_WORLD_WIDTH, RIVER_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, RIVER_WORLD_WIDTH, RIVER_WORLD_HEIGHT);
+
+    const platforms = buildPlatforms(scene, RIVER_PLATFORMS);
+    const checkpointSystem = new CheckpointSystem(scene);
+
+    const crate = new Crate(scene, 200, 650);
+    scene.physics.add.collider(crate.gameObject, platforms);
+    const crateSnapshot: Snapshottable<{ x: number; y: number }> = {
+      captureSnapshot: () => ({ x: crate.gameObject.x, y: crate.gameObject.y }),
+      restoreSnapshot: (s) => {
+        const body = crate.gameObject.body as Phaser.Physics.Arcade.Body;
+        body.reset(s.x, s.y);
+        body.velocity.set(0, 0);
+      },
+    };
+    checkpointSystem.register(crateSnapshot);
+
+    // Current flows against her crossing direction — "swept downriver" if
+    // she misses a log, per SPEC Ch.2's river-crossing fiction. Depth
+    // reaches the world floor deliberately: with no riverbed to stand on,
+    // the zone must cover the whole fall or she'd drop out its bottom edge
+    // (silently un-submerging) before the timer ever reaches SUBMERSION_LIMIT_MS.
+    const waterZone = new WaterZone(scene, 1000, 840, 800, 320, -70);
+    const floatingLogs = [
+      new FloatingLog(scene, 750, 680, 110, 20, 2, 0),
+      new FloatingLog(scene, 1000, 680, 110, 20, 2, 0.7),
+      new FloatingLog(scene, 1250, 680, 110, 20, 2, 1.4),
+    ];
+
+    // Force is well past what's needed to hit Lexi's own max-velocity
+    // ceiling (P1.1's body.setMaxVelocity) quickly — the real lever for
+    // jump distance here is gustDurationMs staying close to her ~1s flight
+    // time, not a bigger force past that ceiling.
+    const windZone = new WindZone(scene, 1825, 600, 270, 250, 500, 3000, 500, 950);
+
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, {
+      grabCandidates: [crate],
+      waterZones: [waterZone],
+      windZones: [windZone],
+    });
+    checkpointSystem.register(lexi);
+
+    scene.physics.add.collider(lexi, platforms);
+    scene.physics.add.collider(lexi, crate.gameObject);
+    for (const log of floatingLogs) {
+      scene.physics.add.collider(lexi, log.gameObject);
+      scene.physics.add.collider(crate.gameObject, log.gameObject);
+    }
+
+    const checkpointA = new TriggerZone(scene, 150, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpointB = new TriggerZone(scene, 1450, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpointC = new TriggerZone(scene, 2060, 620, 80, 120, () => checkpointSystem.checkpoint());
+    // Set well below the jump arc's usable landing height (finish ground's
+    // top is y=680) so a trajectory that's still going to clear the gap
+    // isn't caught here just for briefly dipping below y=800 mid-flight —
+    // only a trajectory that's genuinely lost the fight with gravity does.
+    const failPit = new TriggerZone(scene, 1825, 900, 270, 120, () => checkpointSystem.fail());
+
+    checkpointSystem.checkpoint(); // spawn itself counts as checkpoint zero
+
+    return {
+      update: (dt: number) => {
+        updatePlayerAndCamera(dt);
+        for (const log of floatingLogs) {
+          log.update(dt);
+        }
+        windZone.update(dt);
+        checkpointA.update(lexi.body);
+        checkpointB.update(lexi.body);
+        checkpointC.update(lexi.body);
+        failPit.update(lexi.body);
+
+        if (lexi.waterSubmersionMs > SUBMERSION_LIMIT_MS) {
+          checkpointSystem.fail();
+        }
+      },
+    };
+  },
+};
+
 export const TEST_ROOMS: TestRoom[] = [
   emptyRoom,
   moodRoom,
@@ -391,5 +501,6 @@ export const TEST_ROOMS: TestRoom[] = [
   grabRoom,
   sensesRoom,
   mechanicalPropsRoom,
+  riverCrossingRoom,
 ];
 export const DEFAULT_ROOM_KEY = moodRoom.key;

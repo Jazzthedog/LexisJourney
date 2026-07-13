@@ -77,3 +77,36 @@ Two failure modes this pattern produces, neither of which is a real product bug:
 
 Physics state (position/velocity/`body.blocked`) *does* track `step(t)` accurately —
 these two quirks are specific to keyboard-state-across-wait and Tween timing.
+
+3. **`scene.scene.restart()` doesn't take effect until a frame actually ticks.** It's
+   deferred to the SceneManager's next update, not synchronous. Reading `scene.lexi` (or
+   any other room state) immediately after calling `restart()` returns the **old** scene's
+   objects with no error — it just silently looks like nothing moved/reset. Always call
+   `step()` at least once (P2.1/P2.2 sessions used ~20 frames to be safe) before reading
+   anything from a scene you just restarted.
+
+### A velocity mutation applied before `Lexi.updateHorizontal()` gets silently erased
+
+Any per-frame environmental push on Lexi's horizontal velocity (river current in P2.2's
+`WaterZone`, gust force in `WindZone`) **must** be folded into `updateHorizontal()`'s own
+`targetSpeed` calculation, not applied as a separate `body.velocity.x +=` elsewhere in
+`update()`. `updateHorizontal()` recomputes `velocity.x` from scratch via `moveTowards`
+toward a fixed input-driven target every single frame — an addition made *before* it runs
+gets overwritten outright, and an addition made *after* it runs gets erased on the very
+next frame anyway, because `moveTowards` snaps fully to target the moment the gap is
+smaller than one frame's max accel/decel step (which it almost always is for a small
+per-frame nudge). This cost real debugging time in P2.2: the wind gust force was being set
+correctly on the zone, read correctly by Lexi, and applied via `+=`, yet her measured
+velocity never moved — because `updateHorizontal()` ran immediately afterward and stomped
+it back to the input's target speed. The fix (and the only place either effect lasts) is
+adding the offset into `targetSpeed` itself, exactly like the existing weight/sniff
+multipliers, so `moveTowards` ramps toward the *combined* target.
+
+### Arcade's `body.setMaxVelocity()` doesn't clamp a manually-assigned `velocity.x`
+
+Lexi's `setMaxVelocity(MOVE_SPEED * 1.6, 1000)` from P1.1 does **not** hard-cap
+`updateHorizontal()`'s direct `body.velocity.x = moveTowards(...)` assignment — in testing
+(P2.2's wind gust), her actual velocity plateaued around 416-436px/s regardless of whether
+the gust's target speed was 680 or 1160+. Don't chase a bigger force value expecting
+proportionally more speed past that point; it doesn't happen. If a mechanic needs Lexi to
+go faster than that ceiling, the lever is `setMaxVelocity` itself, not the pushing force.
