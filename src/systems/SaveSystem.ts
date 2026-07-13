@@ -4,9 +4,10 @@ export interface SaveData {
   chapter: string;
   checkpoint: string;
   tokens: string[];
+  hasSeenIntro: boolean;
 }
 
-const EMPTY_SAVE: SaveData = { chapter: "", checkpoint: "", tokens: [] };
+const EMPTY_SAVE: SaveData = { chapter: "", checkpoint: "", tokens: [], hasSeenIntro: false };
 
 function loadFromStorage(): SaveData {
   try {
@@ -19,6 +20,7 @@ function loadFromStorage(): SaveData {
       chapter: typeof parsed.chapter === "string" ? parsed.chapter : "",
       checkpoint: typeof parsed.checkpoint === "string" ? parsed.checkpoint : "",
       tokens: Array.isArray(parsed.tokens) ? parsed.tokens.filter((t): t is string => typeof t === "string") : [],
+      hasSeenIntro: parsed.hasSeenIntro === true,
     };
   } catch {
     // Corrupt or pre-schema-change data — a fresh save beats a crash.
@@ -47,6 +49,18 @@ export class SaveSystem {
 
   get tokenCount(): number {
     return this.data.tokens.length;
+  }
+
+  get hasSeenIntro(): boolean {
+    return this.data.hasSeenIntro;
+  }
+
+  markIntroSeen(): void {
+    if (this.data.hasSeenIntro) {
+      return;
+    }
+    this.data.hasSeenIntro = true;
+    this.persist();
   }
 
   hasToken(id: string): boolean {

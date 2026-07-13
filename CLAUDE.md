@@ -83,7 +83,10 @@ these two quirks are specific to keyboard-state-across-wait and Tween timing.
    any other room state) immediately after calling `restart()` returns the **old** scene's
    objects with no error — it just silently looks like nothing moved/reset. Always call
    `step()` at least once (P2.1/P2.2 sessions used ~20 frames to be safe) before reading
-   anything from a scene you just restarted.
+   anything from a scene you just restarted. `scene.scene.start("OtherKey")` (P4.2's
+   `IntroScene` → `GameScene` handoff) has the identical one-frame lag — checking
+   `game.scene.getScenes(true)` right after calling `start()` still lists the *old* scene
+   key; step a batch of frames before asserting on which scene is active.
 
 ### A velocity mutation applied before `Lexi.updateHorizontal()` gets silently erased
 
