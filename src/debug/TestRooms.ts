@@ -19,6 +19,10 @@ import { TriggerZone } from "../entities/props/TriggerZone";
 import { WaterZone } from "../entities/props/WaterZone";
 import { FloatingLog } from "../entities/props/FloatingLog";
 import { WindZone } from "../entities/props/WindZone";
+import { Branch } from "../entities/props/Branch";
+import { Owl, OWL_CATCH_RADIUS } from "../entities/creatures/Owl";
+import { GuardDog, GUARD_DOG_BITE_RADIUS } from "../entities/creatures/GuardDog";
+import { StrayDog } from "../entities/creatures/StrayDog";
 
 export interface TestRoomHandle {
   update?: (deltaSeconds: number) => void;
@@ -493,6 +497,124 @@ const riverCrossingRoom: TestRoom = {
   },
 };
 
+// Four creature bricks in sequence, one zone each: Crow+Branch (bark to
+// rise the branch into a stepping stone), Owl (open-ground swoop trigger,
+// cover-to-cover pacing), GuardDog (a corridor with no safe walking arc —
+// solvable only by baiting the lunge then dashing through the recovery
+// window), StrayDog (a bark-aimed switch that holds a plate for a gate).
+// Checkpoints between each zone keep failing one puzzle from undoing an
+// earlier one.
+const CREATURES_PLATFORMS: PlatformSpec[] = [
+  { x: 315, y: 700, w: 630, h: 40 }, // ground A: crow + branch
+  { x: 830, y: 550, w: 220, h: 30 }, // ledge past the branch gap
+  { x: 1200, y: 700, w: 600, h: 40 }, // ground B: owl's open ground
+  { x: 1850, y: 700, w: 600, h: 40 }, // ground C: guard dog corridor
+  { x: 2450, y: 700, w: 600, h: 40 }, // ground D: stray dog + plate + gate
+];
+const CREATURES_WORLD_WIDTH = 3000;
+const CREATURES_WORLD_HEIGHT = 1000;
+const CROW_PERCH_OFFSET = 12; // px above the branch surface
+
+const OWL_OPEN_GROUND_A = new Phaser.Geom.Rectangle(950, 590, 150, 100);
+const OWL_OPEN_GROUND_B = new Phaser.Geom.Rectangle(1350, 590, 150, 100);
+
+const creaturesRoom: TestRoom = {
+  key: "9",
+  name: "Creatures",
+  build: (scene) => {
+    scene.cameras.main.setBackgroundColor(0x101418);
+    scene.physics.world.setBounds(0, 0, CREATURES_WORLD_WIDTH, CREATURES_WORLD_HEIGHT);
+    scene.cameras.main.setBounds(0, 0, CREATURES_WORLD_WIDTH, CREATURES_WORLD_HEIGHT);
+
+    const platforms = buildPlatforms(scene, CREATURES_PLATFORMS);
+    const checkpointSystem = new CheckpointSystem(scene);
+
+    // Zone 1 — Crow + Branch: the branch is useless (too low) while the
+    // crow's weighing it down; bark it off and the branch rises into a
+    // stepping stone across the gap to the ledge.
+    const branch = new Branch(scene, 675, 760, 610, 140, 14);
+    const crow = new Crow(scene, 675, 760 - CROW_PERCH_OFFSET);
+
+    // Zone 2 — Owl: two open-ground patches with a covered gap between
+    // them. Lingering in either patch while the owl is perched triggers a
+    // swoop at Lexi's position.
+    const owl = new Owl(scene, 1225, 480);
+
+    // Zone 3 — GuardDog: anchored at the corridor's center with a chain
+    // that reaches both walls, so there is no safe arc to walk around —
+    // only baiting the lunge and dashing through the recovery window works.
+    const guardDog = new GuardDog(scene, 1850, 680, 310);
+
+    // Zone 4 — StrayDog: a bark-aimed switch between an off-plate station
+    // and an on-plate station, holding gate_stray open once it's sent there.
+    const strayDog = new StrayDog(scene, { x: 2250, y: 650 }, { x: 2450, y: 650 });
+    const registry = new PuzzleRegistry();
+    const gate = new Gate(scene, 2600, 610, 16, 140, "gate_stray");
+    registry.register(gate);
+    const plate = new PressurePlate(scene, 2450, 680, 80, ["gate_stray"], registry);
+
+    const { lexi, updatePlayerAndCamera } = createPlayerRig(scene, 100, 600, {
+      soundReactive: [crow, strayDog],
+    });
+    checkpointSystem.register(lexi);
+
+    scene.physics.add.collider(lexi, platforms);
+    scene.physics.add.collider(lexi, branch.gameObject);
+    scene.physics.add.collider(lexi, gate.gameObject);
+
+    const checkpoint1 = new TriggerZone(scene, 150, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpoint2 = new TriggerZone(scene, 980, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpoint3 = new TriggerZone(scene, 1580, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpoint4 = new TriggerZone(scene, 2180, 620, 80, 120, () => checkpointSystem.checkpoint());
+    const checkpoint5 = new TriggerZone(scene, 2700, 620, 80, 120, () => checkpointSystem.checkpoint());
+
+    checkpointSystem.checkpoint(); // spawn itself counts as checkpoint zero
+
+    return {
+      update: (dt: number) => {
+        updatePlayerAndCamera(dt);
+
+        branch.setWeighted(crow.isPerched);
+        branch.update(dt);
+        crow.update(dt);
+        if (crow.isPerched) {
+          crow.gameObject.y = branch.surfaceY - CROW_PERCH_OFFSET;
+        }
+
+        owl.update(dt);
+        if (owl.isPerched) {
+          const inOpenGround =
+            Phaser.Geom.Rectangle.Contains(OWL_OPEN_GROUND_A, lexi.x, lexi.y) ||
+            Phaser.Geom.Rectangle.Contains(OWL_OPEN_GROUND_B, lexi.x, lexi.y);
+          if (inOpenGround) {
+            owl.triggerSwoop(lexi.x, lexi.y);
+          }
+        }
+        if (owl.isSwooping && Phaser.Math.Distance.Between(owl.x, owl.y, lexi.x, lexi.y) < OWL_CATCH_RADIUS) {
+          checkpointSystem.fail();
+        }
+
+        guardDog.update(dt, lexi.x, lexi.y);
+        if (
+          guardDog.isLunging &&
+          Phaser.Math.Distance.Between(guardDog.x, guardDog.y, lexi.x, lexi.y) < GUARD_DOG_BITE_RADIUS
+        ) {
+          checkpointSystem.fail();
+        }
+
+        strayDog.update(dt);
+        plate.update([lexi.body, strayDog.gameObject.body as Phaser.Physics.Arcade.Body]);
+
+        checkpoint1.update(lexi.body);
+        checkpoint2.update(lexi.body);
+        checkpoint3.update(lexi.body);
+        checkpoint4.update(lexi.body);
+        checkpoint5.update(lexi.body);
+      },
+    };
+  },
+};
+
 export const TEST_ROOMS: TestRoom[] = [
   emptyRoom,
   moodRoom,
@@ -502,5 +624,6 @@ export const TEST_ROOMS: TestRoom[] = [
   sensesRoom,
   mechanicalPropsRoom,
   riverCrossingRoom,
+  creaturesRoom,
 ];
 export const DEFAULT_ROOM_KEY = moodRoom.key;

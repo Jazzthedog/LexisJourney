@@ -18,6 +18,10 @@ export class Crow implements SoundReactive {
     this.gameObject.add([body, beak]);
   }
 
+  get isPerched(): boolean {
+    return !this.fleeing;
+  }
+
   onBark(_originX: number, _originY: number): void {
     this.fleeing = true;
   }

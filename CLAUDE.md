@@ -110,3 +110,28 @@ Lexi's `setMaxVelocity(MOVE_SPEED * 1.6, 1000)` from P1.1 does **not** hard-cap
 the gust's target speed was 680 or 1160+. Don't chase a bigger force value expecting
 proportionally more speed past that point; it doesn't happen. If a mechanic needs Lexi to
 go faster than that ceiling, the lever is `setMaxVelocity` itself, not the pushing force.
+
+### A pursuing creature that re-aims at Lexi's *live* position every frame is unbeatable if it's faster than her
+
+P2.3's `GuardDog` originally recomputed its lunge target from Lexi's current position every
+frame (continuous homing). Since its lunge speed (480px/s) exceeds her run speed
+(260px/s), no amount of clever fleeing could ever create distance — the pursuer always
+closes the gap, full stop, regardless of player skill. This isn't a tuning problem you can
+fix with bigger numbers; it's structural. Two changes were both required to make
+"solvable only by baiting the lunge" (PROMPTS P2.3) actually true:
+
+1. **Commit to a fixed target once, at trigger time** (`lungeTargetX/Y` captured on the
+   `IDLE -> COIL` transition), not re-aimed every frame. A lunge is a strike at where you
+   *were*, not a heat-seeking missile — this alone makes evasion possible in principle.
+2. **A brief telegraph before the strike actually moves** (`COIL` state, ~220ms). Without
+   it, the reaction window between "trigger fires" and "bite lands" is too short for a
+   slower player to meaningfully react even with a committed target, because reversing
+   run direction itself costs several frames of decel-then-accel. This mirrors `Owl`'s
+   `TELEGRAPH` state and `WindZone`'s 0.5s pre-gust cue — any future creature/hazard that's
+   faster than Lexi needs a genuine warning beat before it commits, or the encounter is
+   just a coin flip disguised as a puzzle.
+
+Verified the fix numerically, not just "it compiles": a naive continuous walk through the
+guard-dog corridor still gets caught every time (confirms it's not toothless), while
+bait -> retreat until the dog is confirmed in `RECOVER` -> sprint through clears the
+corridor cleanly every time (confirms it's actually solvable).
