@@ -1,7 +1,6 @@
 import Phaser from "phaser";
 import { FogLayers } from "../fx/Fog";
-import { Lexi, LexiInteractables } from "../entities/Lexi";
-import { InputMap } from "../systems/InputMap";
+import { createPlayerRig } from "../systems/PlayerRig";
 import type { Grabbable } from "../entities/props/Grabbable";
 import { Crate } from "../entities/props/Crate";
 import { Ball } from "../entities/props/Ball";
@@ -141,14 +140,6 @@ const MOVEMENT_PLATFORMS: PlatformSpec[] = [
 const MOVEMENT_WORLD_WIDTH = 3200;
 const MOVEMENT_WORLD_HEIGHT = 720;
 
-const CAMERA_LOOK_AHEAD_PX = 140;
-const CAMERA_SMOOTH_PER_SEC = 8; // higher = snappier follow
-
-function expSmooth(current: number, target: number, ratePerSecond: number, deltaSeconds: number): number {
-  const t = 1 - Math.exp(-ratePerSecond * deltaSeconds);
-  return Phaser.Math.Linear(current, target, t);
-}
-
 function buildPlatforms(scene: Phaser.Scene, specs: PlatformSpec[]): Phaser.Physics.Arcade.StaticGroup {
   const platforms = scene.physics.add.staticGroup();
   for (const spec of specs) {
@@ -157,33 +148,6 @@ function buildPlatforms(scene: Phaser.Scene, specs: PlatformSpec[]): Phaser.Phys
     platforms.add(platform);
   }
   return platforms;
-}
-
-// Shared by every room that spawns a playable Lexi: creates her + input,
-// registers scene.lexi for DebugHarness (P0.3), and returns a per-frame
-// update that also drives the manual camera look-ahead (skipped during
-// DebugHarness free-fly).
-function createPlayerRig(scene: Phaser.Scene, spawnX: number, spawnY: number, interactables: LexiInteractables = {}) {
-  const input = new InputMap(scene);
-  const lexi = new Lexi(scene, spawnX, spawnY, input);
-
-  (scene as unknown as { lexi?: Lexi }).lexi = lexi;
-
-  const updatePlayerAndCamera = (dt: number) => {
-    input.update();
-    lexi.update(dt, interactables);
-
-    if (scene.data.get("debugFreeFly")) {
-      return;
-    }
-
-    const cam = scene.cameras.main;
-    const targetScrollX = lexi.x + lexi.facingDirection * CAMERA_LOOK_AHEAD_PX - cam.width / 2;
-    cam.scrollX = expSmooth(cam.scrollX, targetScrollX, CAMERA_SMOOTH_PER_SEC, dt);
-    cam.scrollY = expSmooth(cam.scrollY, lexi.y - cam.height / 2, CAMERA_SMOOTH_PER_SEC, dt);
-  };
-
-  return { lexi, updatePlayerAndCamera };
 }
 
 const movementRoom: TestRoom = {

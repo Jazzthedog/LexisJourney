@@ -22,16 +22,21 @@ interface DebuggablePlayer {
   getDebugState?: () => string;
 }
 
+// A scene is currently running either a hand-built debug room (P0.3) or a
+// Tiled-loaded map (P3.1) — restart/display behavior differs slightly per
+// kind, but the overlay itself doesn't care which.
+export type SceneIdentity = { kind: "room"; key: string } | { kind: "map"; key: string };
+
 export class DebugHarness {
   private scene: Phaser.Scene;
-  private roomKey: string;
+  private identity: SceneIdentity;
   private overlay: Phaser.GameObjects.Text;
   private freeFly = false;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
 
-  constructor(scene: Phaser.Scene, roomKey: string) {
+  constructor(scene: Phaser.Scene, identity: SceneIdentity) {
     this.scene = scene;
-    this.roomKey = roomKey;
+    this.identity = identity;
 
     this.overlay = scene.add
       .text(12, 12, "", {
@@ -75,7 +80,8 @@ export class DebugHarness {
     }
 
     const fps = Math.round(this.scene.game.loop.actualFps);
-    const roomName = TEST_ROOMS.find((r) => r.key === this.roomKey)?.name ?? "?";
+    const roomName =
+      this.identity.kind === "map" ? `map:${this.identity.key}` : (TEST_ROOMS.find((r) => r.key === this.identity.key)?.name ?? "?");
     const rooms = TEST_ROOMS.map((r) => `${r.key}:${r.name}`).join("  ");
 
     this.overlay.setText(
@@ -103,13 +109,18 @@ export class DebugHarness {
   }
 
   private restartRoom(): void {
-    // No CheckpointSystem yet (lands in P2.2) — for now "restart" rebuilds
-    // the current test room fresh, which is the closest sane equivalent.
-    this.scene.scene.restart({ room: this.roomKey });
+    // Rebuilds the current room/map fresh from its own start state — a
+    // CheckpointSystem-driven fail (P2.2+) is the in-fiction equivalent for
+    // rooms/maps that use one; this is the blunt "start over" fallback.
+    if (this.identity.kind === "map") {
+      this.scene.scene.restart({ map: this.identity.key });
+    } else {
+      this.scene.scene.restart({ room: this.identity.key });
+    }
   }
 
   private jumpToRoom(key: string): void {
-    if (key === this.roomKey || !TEST_ROOMS.some((r) => r.key === key)) {
+    if ((this.identity.kind === "room" && key === this.identity.key) || !TEST_ROOMS.some((r) => r.key === key)) {
       return;
     }
     this.scene.scene.restart({ room: key });

@@ -135,3 +135,23 @@ Verified the fix numerically, not just "it compiles": a naive continuous walk th
 guard-dog corridor still gets caught every time (confirms it's not toothless), while
 bait -> retreat until the dog is confirmed in `RECOVER` -> sprint through clears the
 corridor cleanly every time (confirms it's actually solvable).
+
+### Phaser Scene lifecycle: `preload()` receives no arguments, only `init(data)` and `create(data)` do
+
+P3.1's `GameScene` needs to know the `map` key *inside* `preload()`, to queue
+`load.tilemapTiledJSON`/`load.image` calls before `create()` runs. `scene.preload.call(scene)`
+is invoked with zero arguments by `SceneManager.bootScene` — the scene-start data object only
+ever reaches `init(data)` and `create(data)`. The fix: implement `init(data)` solely to stash
+`this.pendingData = data`, then have `preload()` read `this.pendingData` (no params) instead
+of expecting an argument. Getting this wrong doesn't throw — `data` would just be
+`undefined` inside a `preload(data)` signature, silently skipping the map's asset loads.
+
+### Tiled's `properties` array is NOT converted to a plain object by Phaser's loader
+
+A Tiled object's custom properties are stored in the raw JSON as
+`[{name, type, value}, ...]`. `Phaser.Tilemaps.Parsers.Tiled.ParseObject` copies this array
+through **unchanged** (`Pick(tiledObject, [...,'properties',...])`) — `obj.properties` on a
+loaded `Phaser.Types.Tilemaps.TiledObject` is still that array, not a `{name: value}` lookup.
+`LevelLoader.ts`'s `propsOf()` helper does the array-to-object conversion; don't assume a
+future Phaser version or a different loader path hands you an already-flattened object
+without checking `ParseObject.js` again.
