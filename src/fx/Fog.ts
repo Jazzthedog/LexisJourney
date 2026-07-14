@@ -7,9 +7,9 @@ interface FogLayerConfig {
 }
 
 const LAYER_CONFIGS: FogLayerConfig[] = [
-  { alpha: 0.04, driftSpeed: 4, tileScale: 1.6 },
-  { alpha: 0.07, driftSpeed: 9, tileScale: 1.1 },
-  { alpha: 0.1, driftSpeed: 16, tileScale: 0.75 },
+  { alpha: 0.02, driftSpeed: 4, tileScale: 1.6 },
+  { alpha: 0.035, driftSpeed: 9, tileScale: 1.1 },
+  { alpha: 0.05, driftSpeed: 16, tileScale: 0.75 },
 ];
 
 const FOG_TEXTURE_KEY = "fx-fog-blob";

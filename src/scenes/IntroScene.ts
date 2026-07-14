@@ -93,26 +93,32 @@ function buildGate(scene: Phaser.Scene): Phaser.GameObjects.Rectangle {
 }
 
 function buildLexiPuppet(scene: Phaser.Scene): Phaser.GameObjects.Container {
-  // Same silhouette composition as the real Lexi.ts capsule+eyes+collar, so
+  // Same silhouette composition as the real Lexi.ts body+head+snout+legs, so
   // the intro's stand-in reads as "the same dog" once gameplay begins.
-  const capsule = scene.add.ellipse(0, 0, 46, 26, 0x0a0a0a);
-  const eyeFront = scene.add.ellipse(15, -6, 4, 4, 0xffffff);
-  const collar = scene.add.rectangle(12, 2, 12, 5, ACCENT_COLOR);
-  const leash = scene.add.rectangle(-8, 4, 46, 3, ACCENT_COLOR);
+  const body = scene.add.ellipse(0, -2, 46, 20, 0x3c3c3c);
+  const head = scene.add.ellipse(20, -14, 17, 14, 0x3c3c3c);
+  const snout = scene.add.triangle(28, -12, -2, -4, 9, 0, -2, 5, 0x3c3c3c);
+  const eyeFront = scene.add.ellipse(25, -17, 4, 4, 0xffffff);
+  const collar = scene.add.rectangle(13, -5, 10, 5, ACCENT_COLOR);
+  const earFront = scene.add.triangle(23, -25, -4, 6, 0, -9, 4, 6, 0x3c3c3c);
+  const earBack = scene.add.triangle(16, -25, -4, 6, 0, -9, 4, 6, 0x333333);
+  const legFront = scene.add.rectangle(13, 13, 6, 15, 0x333333);
+  const legBack = scene.add.rectangle(-13, 13, 6, 15, 0x333333);
+  const leash = scene.add.rectangle(-8, -6, 46, 3, ACCENT_COLOR);
   leash.setOrigin(1, 0.5); // trails behind (negative-x side), per SPEC "leash trails behind her"
-  return scene.add.container(0, 0, [leash, capsule, eyeFront, collar]);
+  return scene.add.container(0, 0, [leash, legBack, legFront, body, earBack, earFront, head, snout, eyeFront, collar]);
 }
 
 function buildBackground(scene: Phaser.Scene): void {
-  scene.add.rectangle(640, 360, 1280, 720, 0x0b0b0b).setDepth(-30);
+  scene.add.rectangle(640, 360, 1280, 720, 0x1c1c1c).setDepth(-30);
   // Distant treeline, both sides — pure atmosphere, no interactivity.
   for (let i = 0; i < 10; i++) {
     const x = 40 + i * 130 + Phaser.Math.Between(-20, 20);
     const h = Phaser.Math.Between(90, 160);
-    scene.add.triangle(x, GROUND_Y - h / 2, 0, h / 2, 40, -h / 2, 80, h / 2, 0x060606).setDepth(-20);
+    scene.add.triangle(x, GROUND_Y - h / 2, 0, h / 2, 40, -h / 2, 80, h / 2, 0x121212).setDepth(-20);
   }
-  scene.add.rectangle(640, GROUND_Y + 60, 1280, 120, 0x141414).setDepth(-10); // road
-  scene.add.rectangle(960, GROUND_Y + 70, 700, 140, 0x101410).setDepth(-10); // grass beyond the gate
+  scene.add.rectangle(640, GROUND_Y + 60, 1280, 120, 0x242424).setDepth(-10); // road
+  scene.add.rectangle(960, GROUND_Y + 70, 700, 140, 0x1c221c).setDepth(-10); // grass beyond the gate
 }
 
 // Wordless 30s premise intro (SPEC §2, PROMPTS P4.2): a scripted sequence,
@@ -148,7 +154,7 @@ export class IntroScene extends Phaser.Scene {
     this.finished = false;
     this.skipRequestedAtMs = null;
     this.firedCues.clear();
-    this.cameras.main.setBackgroundColor(0x0b0b0b);
+    this.cameras.main.setBackgroundColor(0x1c1c1c);
 
     buildBackground(this);
     this.fog = new FogLayers(this, this.scale.width, this.scale.height);

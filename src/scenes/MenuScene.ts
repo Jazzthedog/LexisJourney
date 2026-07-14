@@ -44,7 +44,7 @@ export class MenuScene extends Phaser.Scene {
     this.selectedIndex = this.mainMenuItems().findIndex((item) => item.enabled());
     this.optionsPanel = null;
 
-    this.cameras.main.setBackgroundColor(0x0a0a0a);
+    this.cameras.main.setBackgroundColor(0x1c1c1c);
     this.fog = new FogLayers(this, this.scale.width, this.scale.height);
     this.setupGrain();
 

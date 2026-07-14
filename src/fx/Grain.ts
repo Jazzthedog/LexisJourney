@@ -25,7 +25,7 @@ void main(void) {
 
   vec2 centered = outTexCoord - 0.5;
   float vignette = smoothstep(0.75, 0.25, length(centered));
-  float vignetteFloor = mix(0.35, 0.7, uHighContrast);
+  float vignetteFloor = mix(0.55, 0.8, uHighContrast);
   color.rgb *= mix(vignetteFloor, 1.0, vignette);
 
   // uTime grows for the entire lifetime of the page (never resets between
@@ -38,7 +38,7 @@ void main(void) {
   // mediump) with no visible seam, since this is frame-to-frame static
   // noise, not a smooth animation.
   float wrappedTime = mod(uTime, 10.0);
-  float grain = (random(outTexCoord * wrappedTime * 100.0) - 0.5) * 0.035;
+  float grain = (random(outTexCoord * wrappedTime * 100.0) - 0.5) * 0.02;
   color.rgb += grain * uGrainEnabled;
 
   gl_FragColor = color;

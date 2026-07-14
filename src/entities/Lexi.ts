@@ -71,6 +71,28 @@ const WATER_MAX_SINK_SPEED = 60; // px/s cap on downward speed while swimming �
 const BODY_WIDTH = 26;
 const BODY_HEIGHT = 46;
 
+// Visual-only dog silhouette geometry — deliberately decoupled from
+// BODY_WIDTH/BODY_HEIGHT above. Those stay fixed because every Chapter 1
+// map's jump gaps and ledge clearances were tuned against that exact hitbox
+// (see CLAUDE.md's "Arcade can't cut the corner" gotcha) — changing them
+// would silently re-break geometry that's already been verified. The drawn
+// shapes below don't feed into physics at all (Phaser collision only reads
+// body.width/height/offset), so they're free to be a completely different,
+// actually-dog-proportioned silhouette: low and wide instead of the old
+// capsule, which literally reused the tall/narrow hitbox dimensions as its
+// visual size and read as an egg standing on end, not an animal.
+const VISUAL_BODY_WIDTH = 46;
+const VISUAL_BODY_HEIGHT = 20;
+const VISUAL_BODY_Y = -2;
+const HEAD_X = 20;
+const HEAD_Y = -14;
+const HEAD_SIZE = 17;
+const LEG_TOP_Y = 6;
+const LEG_BOTTOM_Y = 21;
+const LEG_FRONT_X = 13;
+const LEG_BACK_X = -13;
+const LEG_WIDTH = 6;
+
 // Tail rig (SPEC §4's emotion channel). Angles in radians, Phaser's y-down
 // convention: negative = tip swings up, positive = tip swings down.
 const TAIL_ANGLE_NEUTRAL = -0.15;
@@ -86,6 +108,15 @@ const TAIL_FOLLOW_RATE = 9; // rad/s max chase speed
 const EAR_ANGLE_ALERT = 0.12; // perked, facing slightly forward
 const EAR_ANGLE_SCARED = 0.65; // flattened back
 const EAR_FOLLOW_RATE = 10;
+// Legs are pivoted containers, same trick as the tail — rotating the
+// container swings the whole leg like a real limb from the hip/shoulder.
+// Two legs, not four: a standard silhouette-game shorthand (the far pair is
+// implied, not drawn) that keeps the run-cycle math simple and still reads
+// as "walking on legs" at this scale.
+const LEG_ANGLE_IDLE = 0.08;
+const LEG_SWING_AMPLITUDE = 0.6;
+const LEG_WAG_HZ_RUN = 4.6; // matches RUN_BOB_HZ so legs and the body bob read as one gait
+const LEG_FOLLOW_RATE = 16;
 const CELEBRATE_MS = 1300; // ClueSystem calls celebrate() on a Memory Token pickup
 const SCARED_SUBMERSION_MS = 1500; // "getting worried" threshold while swimming
 const RUN_BOB_HZ = 4.6;
@@ -128,8 +159,12 @@ export class Lexi extends Phaser.GameObjects.Container {
   private tail!: Phaser.GameObjects.Container;
   private earFront!: Phaser.GameObjects.Triangle;
   private earBack!: Phaser.GameObjects.Triangle;
+  private legFront!: Phaser.GameObjects.Container;
+  private legBack!: Phaser.GameObjects.Container;
   private tailAngle = TAIL_ANGLE_NEUTRAL;
   private earAngle = EAR_ANGLE_ALERT;
+  private legFrontAngle = LEG_ANGLE_IDLE;
+  private legBackAngle = -LEG_ANGLE_IDLE;
   private runCycleMs = 0;
   private celebrateTimerMs = 0;
   private threatened = false;
@@ -146,27 +181,51 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.body.setMaxVelocity(MOVE_SPEED * 1.6, 1000);
     this.body.setCollideWorldBounds(true);
 
-    const capsule = scene.add.ellipse(0, 0, BODY_WIDTH, BODY_HEIGHT, 0x0a0a0a);
-    const eyeFront = scene.add.ellipse(6, -14, 5, 5, 0xffffff);
-    const eyeBack = scene.add.ellipse(6, -7, 5, 5, 0xffffff);
-    const collar = scene.add.rectangle(5, -1, 15, 5, 0xaa3333);
+    // Lexi's silhouette needs to read as an actual dog — low, wide body,
+    // a distinct head with a snout, legs reaching the ground — not just a
+    // colored blob with accent details floating on it. 0x0a0a0a is a solid
+    // mid-grey against every map's near-black background.
+    const body = scene.add.ellipse(0, VISUAL_BODY_Y, VISUAL_BODY_WIDTH, VISUAL_BODY_HEIGHT, 0x0a0a0a);
+    const head = scene.add.ellipse(HEAD_X, HEAD_Y, HEAD_SIZE, HEAD_SIZE - 3, 0x0a0a0a);
+    const snout = scene.add.triangle(HEAD_X + 8, HEAD_Y + 2, -2, -4, 9, 0, -2, 5, 0x0a0a0a);
+    const eye = scene.add.ellipse(HEAD_X + 5, HEAD_Y - 3, 4, 4, 0xffffff);
+    const collar = scene.add.rectangle(HEAD_X - 7, HEAD_Y + 9, 10, 5, 0xaa3333);
 
-    // Pointed ears (SPEC §4's "readable animal silhouette"), pivoted near
-    // their base so `.rotation` swings the tip rather than the whole ear
-    // sliding sideways.
-    this.earFront = scene.add.triangle(9, -19, -4, 6, 0, -9, 4, 6, 0x0a0a0a);
-    this.earBack = scene.add.triangle(1, -19, -4, 6, 0, -9, 4, 6, 0x0a0a0a);
+    // Pointed ears (SPEC §4's "readable animal silhouette"), sitting on top
+    // of the head now rather than on the old capsule's shoulder.
+    this.earFront = scene.add.triangle(HEAD_X + 3, HEAD_Y - 11, -4, 6, 0, -9, 4, 6, 0x0a0a0a);
+    this.earBack = scene.add.triangle(HEAD_X - 4, HEAD_Y - 11, -4, 6, 0, -9, 4, 6, 0x060606);
 
-    // Tail: a Container pivoted at the hindquarters (local -10,4, on the
-    // opposite side from the eyes/collar) so rotating the container swings
+    // Tail: a Container pivoted at the hindquarters so rotating it swings
     // the whole tail like a real pivot, not a shape spinning around its own
     // centroid. Extends toward -x (behind Lexi when facing right; the outer
     // container's facing-flip scale handles mirroring for free).
-    const tailShape = scene.add.triangle(0, 0, 0, -3, -28, 0, 0, 3, 0x0a0a0a);
-    this.tail = scene.add.container(-10, 3, [tailShape]);
+    const tailShape = scene.add.triangle(0, 0, 0, -3, -22, 0, 0, 3, 0x0a0a0a);
+    this.tail = scene.add.container(-18, -3, [tailShape]);
     this.tail.rotation = this.tailAngle;
 
-    this.visualRoot = scene.add.container(0, 0, [this.tail, capsule, this.earBack, this.earFront, eyeFront, eyeBack, collar]);
+    // Legs: same pivoted-container trick as the tail, rooted at the hip so
+    // rotation swings the leg from the top like a real limb rather than
+    // sliding the whole rectangle sideways.
+    const legFrontShape = scene.add.rectangle(0, (LEG_BOTTOM_Y - LEG_TOP_Y) / 2, LEG_WIDTH, LEG_BOTTOM_Y - LEG_TOP_Y, 0x060606);
+    this.legFront = scene.add.container(LEG_FRONT_X, LEG_TOP_Y, [legFrontShape]);
+    this.legFront.rotation = this.legFrontAngle;
+    const legBackShape = scene.add.rectangle(0, (LEG_BOTTOM_Y - LEG_TOP_Y) / 2, LEG_WIDTH, LEG_BOTTOM_Y - LEG_TOP_Y, 0x060606);
+    this.legBack = scene.add.container(LEG_BACK_X, LEG_TOP_Y, [legBackShape]);
+    this.legBack.rotation = this.legBackAngle;
+
+    this.visualRoot = scene.add.container(0, 0, [
+      this.tail,
+      this.legBack,
+      this.legFront,
+      body,
+      this.earBack,
+      this.earFront,
+      head,
+      snout,
+      eye,
+      collar,
+    ]);
     this.add(this.visualRoot);
   }
 
@@ -263,6 +322,10 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.earAngle = EAR_ANGLE_ALERT;
     this.earFront.rotation = this.earAngle;
     this.earBack.rotation = this.earAngle;
+    this.legFrontAngle = LEG_ANGLE_IDLE;
+    this.legBackAngle = -LEG_ANGLE_IDLE;
+    this.legFront.rotation = this.legFrontAngle;
+    this.legBack.rotation = this.legBackAngle;
   }
 
   private updateGrab(deltaSeconds: number, grabCandidates: Grabbable[]): void {
@@ -524,6 +587,20 @@ export class Lexi extends Phaser.GameObjects.Container {
     this.earAngle = moveTowards(this.earAngle, targetEar, EAR_FOLLOW_RATE * deltaSeconds);
     this.earFront.rotation = this.earAngle;
     this.earBack.rotation = this.earAngle;
+
+    // Legs alternate (front and back out of phase) while running, matching
+    // RUN_BOB_HZ so the stride and the body bob read as one gait; otherwise
+    // they ease back to a static standing angle.
+    const targetLegFront = running
+      ? Math.sin((this.runCycleMs / 1000) * LEG_WAG_HZ_RUN * Math.PI * 2) * LEG_SWING_AMPLITUDE
+      : LEG_ANGLE_IDLE;
+    const targetLegBack = running
+      ? -Math.sin((this.runCycleMs / 1000) * LEG_WAG_HZ_RUN * Math.PI * 2) * LEG_SWING_AMPLITUDE
+      : -LEG_ANGLE_IDLE;
+    this.legFrontAngle = moveTowards(this.legFrontAngle, targetLegFront, LEG_FOLLOW_RATE * deltaSeconds);
+    this.legBackAngle = moveTowards(this.legBackAngle, targetLegBack, LEG_FOLLOW_RATE * deltaSeconds);
+    this.legFront.rotation = this.legFrontAngle;
+    this.legBack.rotation = this.legBackAngle;
 
     // A subtle bob while actually running — gated off during LAND (whose
     // squash tween owns visualRoot's scale, not position, so no conflict,

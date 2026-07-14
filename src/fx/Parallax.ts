@@ -43,7 +43,7 @@ const BANDS: BandConfig[] = [
   { key: "fx-parallax-scrub", height: 70, alpha: 0.85, scrollFactor: 0.72, driftPxPerSec: 4, depth: -20, color: 0x0c0c0c },
 ];
 
-const FOREGROUND_TRUNK_SPACING_PX = 520;
+const FOREGROUND_TRUNK_SPACING_PX = 900;
 const FOREGROUND_TRUNK_SCROLL_FACTOR = 1.18; // >1: closer than the camera plane
 const FOREGROUND_DEPTH = 40; // above gameplay (0), below fog (50+)
 
@@ -160,7 +160,7 @@ function buildTrunkTexture(scene: Phaser.Scene): string {
     throw new Error("Parallax: failed to create foreground trunk texture");
   }
   const ctx = canvasTexture.getContext();
-  ctx.fillStyle = "#020202";
+  ctx.fillStyle = "#1a1a1a";
   // A tapered trunk, off-center, tall enough to run off both top and bottom
   // of any Chapter 1 map's viewport — reads as "close enough to occlude,"
   // not a discrete prop the player is meant to notice individually.
@@ -205,10 +205,10 @@ export class ParallaxLayers {
     for (let i = 0; i < trunkCount; i++) {
       const x = i * FOREGROUND_TRUNK_SPACING_PX + FOREGROUND_TRUNK_SPACING_PX * 0.5;
       const trunk = scene.add.image(x, levelHeightPx / 2, trunkKey);
-      trunk.setDisplaySize(90, levelHeightPx + 200);
+      trunk.setDisplaySize(60, levelHeightPx + 200);
       trunk.setScrollFactor(FOREGROUND_TRUNK_SCROLL_FACTOR, 1);
       trunk.setDepth(FOREGROUND_DEPTH);
-      trunk.setAlpha(0.97);
+      trunk.setAlpha(0.5);
       this.trunks.push(trunk);
     }
   }

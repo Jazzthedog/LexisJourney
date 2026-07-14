@@ -18,17 +18,20 @@ export interface PalettePreset {
 // crush the tileset/decoration detail underneath it. Verified visually via
 // a Phaser renderer screenshot at these numbers, not just by reading them.
 const DEFAULT_PALETTE: PalettePreset = {
-  backgroundColor: 0x0d0d0d,
-  ambientDarkness: 0.08,
+  backgroundColor: 0x1c1c1c,
+  ambientDarkness: 0.04,
   fogDensity: 1,
 };
 
 const CHAPTER_1_PALETTES: Record<string, PalettePreset> = {
-  ch1_01_reststop: { backgroundColor: 0x100e0d, ambientDarkness: 0.04, fogDensity: 0.8 },
-  ch1_02_woods: { backgroundColor: 0x0c0c0b, ambientDarkness: 0.1, fogDensity: 1.0 },
-  ch1_03_stream: { backgroundColor: 0x0b0d0e, ambientDarkness: 0.07, fogDensity: 1.3 },
-  ch1_04_owl: { backgroundColor: 0x08080a, ambientDarkness: 0.15, fogDensity: 1.1 },
-  ch1_05_highway: { backgroundColor: 0x110f0d, ambientDarkness: 0.05, fogDensity: 0.9 },
+  // TEMP contrast test (not final tuning): Limbo-style lit hazy sky instead
+  // of dark-on-dark, to test whether contrast (not shape/asset) was the
+  // actual missing ingredient. Revert once evaluated.
+  ch1_01_reststop: { backgroundColor: 0xc4c4bc, ambientDarkness: 0, fogDensity: 0.8 },
+  ch1_02_woods: { backgroundColor: 0x1a1a18, ambientDarkness: 0.05, fogDensity: 1.0 },
+  ch1_03_stream: { backgroundColor: 0x181c1e, ambientDarkness: 0.035, fogDensity: 1.3 },
+  ch1_04_owl: { backgroundColor: 0x141418, ambientDarkness: 0.08, fogDensity: 1.1 },
+  ch1_05_highway: { backgroundColor: 0x221e1a, ambientDarkness: 0.025, fogDensity: 0.9 },
 };
 
 export function getPalette(mapKey: string): PalettePreset {
